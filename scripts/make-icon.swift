@@ -1,4 +1,4 @@
-// Generates the template menu-bar icon for MLH: the text "m/" drawn in black
+// Generates the template menu-bar icon for mlh: the text "/␣" (slash, space) drawn in black
 // on a transparent background, at 16x16 (1x) and 32x32 (2x), saved as TIFF.
 //
 // usage: swift scripts/make-icon.swift <output.tiff>
@@ -26,7 +26,7 @@ func makeRep(scale: Int) -> NSBitmapImageRep {
     NSColor.clear.setFill()
     NSRect(x: 0, y: 0, width: points, height: points).fill()
 
-    let text = "m/" as NSString
+    let text = "/␣" as NSString
     var fontSize: CGFloat = 13
     var attrs: [NSAttributedString.Key: Any] = [:]
     var size = NSSize.zero

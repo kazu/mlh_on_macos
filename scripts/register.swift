@@ -1,7 +1,7 @@
-// Registers ~/Library/Input Methods/MLH.app with Text Input Sources and
-// enables the MLH input source.
+// Registers ~/Library/Input Methods/mlh.app with Text Input Sources and
+// enables the mlh input source.
 //
-// usage: swift scripts/register.swift [path/to/MLH.app]
+// usage: swift scripts/register.swift [path/to/mlh.app]
 import Carbon
 import Foundation
 
@@ -9,7 +9,7 @@ let bundleID = "com.github.kazu.inputmethod.mlh"
 let args = CommandLine.arguments
 let appPath = args.count >= 2
     ? args[1]
-    : (NSHomeDirectory() as NSString).appendingPathComponent("Library/Input Methods/MLH.app")
+    : (NSHomeDirectory() as NSString).appendingPathComponent("Library/Input Methods/mlh.app")
 
 guard FileManager.default.fileExists(atPath: appPath) else {
     FileHandle.standardError.write("not found: \(appPath)\n".data(using: .utf8)!)

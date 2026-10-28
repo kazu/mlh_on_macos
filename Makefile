@@ -1,13 +1,13 @@
-# MLH (modeless Japanese input, after Emacs egg-mlh.el) for macOS.
+# mlh (modeless Japanese input, after Emacs egg-mlh.el) for macOS.
 # Requires only the Command Line Tools (swiftc, codesign).
 
-APP_NAME     := MLH
+APP_NAME     := mlh
 BUILD_DIR    := build
 APP          := $(BUILD_DIR)/$(APP_NAME).app
 CONTENTS     := $(APP)/Contents
 EXECUTABLE   := $(CONTENTS)/MacOS/$(APP_NAME)
 PLIST        := $(CONTENTS)/Info.plist
-ICON         := $(CONTENTS)/Resources/icon.tiff
+ICON         := $(CONTENTS)/Resources/iconTemplate.tiff
 TEST_BIN     := $(BUILD_DIR)/mlh-tests
 STRINGS      := $(patsubst Resources/%,$(CONTENTS)/Resources/%,$(wildcard Resources/*.lproj/InfoPlist.strings))
 
@@ -86,7 +86,7 @@ install-system: build
 uninstall:
 	-killall $(APP_NAME) 2>/dev/null
 	rm -rf "$(INSTALLED)"
-	@echo "removed $(INSTALLED); remove MLH from System Settings > Keyboard > Input Sources if it is still listed."
+	@echo "removed $(INSTALLED); remove mlh from System Settings > Keyboard > Input Sources if it is still listed."
 
 clean:
 	rm -rf "$(BUILD_DIR)"

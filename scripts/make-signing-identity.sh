@@ -1,6 +1,6 @@
 #!/bin/sh
 # Creates a self-signed code signing identity in the login keychain so that
-# MLH.app keeps the same designated requirement across rebuilds (and with it
+# mlh.app keeps the same designated requirement across rebuilds (and with it
 # the Accessibility permission). Run once per machine.
 #
 # usage: scripts/make-signing-identity.sh ["identity name"]

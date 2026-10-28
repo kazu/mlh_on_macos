@@ -1,6 +1,6 @@
 import Foundation
 
-/// Settings for `x`, read from ~/Library/Application Support/MLH/execute.json:
+/// Settings for `x`, read from ~/Library/Application Support/mlh/execute.json:
 ///
 ///   {
 ///     "2": { "instructions": "Translate into English." },
@@ -31,7 +31,7 @@ public struct ExecuteFile: Equatable {
 
     public static var defaultURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/MLH/execute.json")
+            .appendingPathComponent("Library/Application Support/mlh/execute.json")
     }
 
     public static func load(from url: URL = defaultURL) -> ExecuteFile {

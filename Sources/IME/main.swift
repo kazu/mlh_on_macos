@@ -1,7 +1,7 @@
 import Cocoa
 import InputMethodKit
 
-// Entry point of the MLH input method server.
+// Entry point of the mlh input method server.
 let connectionName = (Bundle.main.object(forInfoDictionaryKey: "InputMethodConnectionName") as? String)
     ?? "com.github.kazu.inputmethod.mlh_Connection"
 

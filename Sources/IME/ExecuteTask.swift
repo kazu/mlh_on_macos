@@ -21,7 +21,7 @@ protocol ExecuteTask: AnyObject {
 /// execute.json, and per-app entries there override both (see
 /// `ExecuteFile`); otherwise plain `x/`:
 ///   defaults write com.github.kazu.inputmethod.mlh ExecuteBackend command|openai
-/// Without the setting: the command if ~/Library/Application Support/MLH/execute
+/// Without the setting: the command if ~/Library/Application Support/mlh/execute
 /// exists, else OpenAI if its API key is in the keychain, else nothing (`x/`
 /// is just removed, as in egg without mlh-userdef-function).
 enum Execute {
@@ -96,13 +96,13 @@ class ExecuteTaskBase {
     }
 }
 
-/// Runs the executable ~/Library/Application Support/MLH/execute with the
+/// Runs the executable ~/Library/Application Support/mlh/execute with the
 /// line on standard input; its standard output (without the trailing
 /// newline) is the result. A non-zero exit status is a failure.
 final class CommandTask: ExecuteTaskBase, ExecuteTask {
     static var url: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/MLH/execute")
+            .appendingPathComponent("Library/Application Support/mlh/execute")
     }
 
     static var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: url.path) }

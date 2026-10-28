@@ -1,7 +1,9 @@
-# MLH for macOS — モードレス日本語入力
+# mlh for macOS — モードレス日本語入力
 
-Emacs の Egg に含まれる **mlh (egg-mlh.el, Modeless Conversion Facility)** の操作体系を、
-macOS の入力メソッド (InputMethodKit) として再現したものです。
+**mlh** は NIIBE Yutaka さんが 1990 年に NEmacs 用に作ったモードレスな変換ツールで、Mule の時代には
+Egg・Canna・SJ3 と組み合わせて使われ、のちに Emacs の入力システム Egg（たまご）V4 に
+egg-mlh.el (Modeless Conversion Facility) として取り込まれました。
+本プロジェクトは egg-mlh.el の操作体系を、macOS の入力メソッド (InputMethodKit) として再現したものです。
 
 - 「日本語モード」「英数モード」の切り替えはありません。入力メソッドは常に有効で、
   普段のキー入力はそのままアプリケーションに渡されます（ASCII がそのまま入力されます）。
@@ -22,29 +24,29 @@ macOS の入力メソッド (InputMethodKit) として再現したものです�
 ## ビルドとインストール
 
 ```sh
-make build      # build/MLH.app を作成（ad-hoc 署名済み）
+make build      # build/mlh.app を作成（ad-hoc 署名済み）
 make test       # Core のテストを実行
-make install    # ~/Library/Input Methods/MLH.app に配置し、入力ソースとして登録・有効化
-make uninstall  # ~/Library/Input Methods/MLH.app を削除
+make install    # ~/Library/Input Methods/mlh.app に配置し、入力ソースとして登録・有効化
+make uninstall  # ~/Library/Input Methods/mlh.app を削除
 make clean      # build/ を削除
 ```
 
-`make install` は実行中の MLH プロセスを終了し（`killall MLH`）、アプリを置き換えたうえで
+`make install` は実行中の mlh プロセスを終了し（`killall mlh`）、アプリを置き換えたうえで
 `scripts/register.swift` で `TISRegisterInputSource` / `TISEnableInputSource` を呼び出します。
 
 #### App Store 版のアプリ（Slack など）でも使う場合
 
 サンドボックスで動く App Store 版のアプリからは、`~/Library/Input Methods` に置いた入力メソッドが
-見えないことがあります（App Store 版 Slack では MLH に切り替えられず、ショートカットで切り替えると
+見えないことがあります（App Store 版 Slack では mlh に切り替えられず、ショートカットで切り替えると
 Slack が落ちました）。その場合はシステム全体の場所に入れてください。
 
 ```sh
-make install-system   # /Library/Input Methods/MLH.app に配置（sudo が必要）
+make install-system   # /Library/Input Methods/mlh.app に配置（sudo が必要）
 ```
 
 初めて `/Library/Input Methods` に入れたときは、**一度ログアウトしてログインし直す**まで
 システム設定の一覧に出てきません。以後の更新（`make install-system` の再実行）ではログアウトは不要です。
-アクセシビリティの許可も `/Library/Input Methods/MLH.app` に対して追加し直してください。
+アクセシビリティの許可も `/Library/Input Methods/mlh.app` に対して追加し直してください。
 
 ### 入力ソースへの追加（初回のみ）
 
@@ -53,21 +55,21 @@ make install-system   # /Library/Input Methods/MLH.app に配置（sudo が必�
 
 1. 「システム設定」→「キーボード」→「テキスト入力」の「入力ソース」の「編集…」を開く
 2. 左下の「+」を押し、言語の一覧から「日本語」を選ぶ
-3. 「MLH」を選んで「追加」
-4. メニューバーの入力メニュー（`m/` アイコン）から MLH を選択
+3. 「mlh」を選んで「追加」
+4. メニューバーの入力メニュー（`/␣` アイコン）から mlh を選択
 
 一覧に出てこない場合は、システム設定を開き直すか、一度ログアウトして再ログインしてください。
-MLH は常に ASCII がそのまま入る入力メソッドなので、普段から MLH を選んだままで使えます。
+mlh は常に ASCII がそのまま入る入力メソッドなので、普段から mlh を選んだままで使えます。
 
 ### アクセシビリティの許可
 
 Ghostty などのターミナルや、Chrome・Discord・Slack・VS Code などの Chromium/Electron 系アプリでは、
 元の文字列を消すためにバックスペースのキーイベントを合成します（後述の「制限事項」参照）。
-このため「システム設定」→「プライバシーとセキュリティ」→「アクセシビリティ」で MLH を許可してください。
+このため「システム設定」→「プライバシーとセキュリティ」→「アクセシビリティ」で mlh を許可してください。
 
 - 「+」のファイル選択では `~/Library` が隠れているので、⌘⇧G で `~/Library/Input Methods` を開くか、
-  `open ~/Library/Input\ Methods` で開いた Finder から MLH.app を一覧へドラッグします。
-- 署名が変わると許可が無効になります。ad-hoc 署名でビルドし直した場合は、一覧から MLH を「−」で
+  `open ~/Library/Input\ Methods` で開いた Finder から mlh.app を一覧へドラッグします。
+- 署名が変わると許可が無効になります。ad-hoc 署名でビルドし直した場合は、一覧から mlh を「−」で
   削除して追加し直し、入力ソースを一度切り替えてください（固定の署名を使う方法は「署名」を参照）。
 
 ### 署名
@@ -171,7 +173,7 @@ defaults write com.github.kazu.inputmethod.mlh ExecuteBackend openai    # 組み
 
 #### 番号付き（`2x/` など）
 
-`x` の前に数字を付けると、`~/Library/Application Support/MLH/execute.json` のその番号の設定を使います
+`x` の前に数字を付けると、`~/Library/Application Support/mlh/execute.json` のその番号の設定を使います
 （`3w/` などと同じく、数字は方式文字の前に置きます）。番号も用途も自由に決められます。
 
 ```json
@@ -212,7 +214,7 @@ defaults write com.github.kazu.inputmethod.mlh ExecuteBackend openai    # 組み
 
 #### 外部コマンド
 
-`~/Library/Application Support/MLH/execute` に実行可能ファイルを置きます。
+`~/Library/Application Support/mlh/execute` に実行可能ファイルを置きます。
 行を標準入力に渡し、標準出力（末尾の改行は除く）で置き換えます。終了コードが 0 以外なら失敗です。
 環境変数 `MLH_CLIENT_BUNDLE_ID` に入力先アプリのバンドル ID が入ります。
 
@@ -229,10 +231,10 @@ API キーはログインキーチェーンに保存します。
 
 ```sh
 security add-generic-password -s mlh-openai -a "$USER" -w 'sk-...' \
-  -T "$HOME/Library/Input Methods/MLH.app"
+  -T "$HOME/Library/Input Methods/mlh.app"
 ```
 
-`-T` で MLH を許可しておくと、キーを読むときの確認ダイアログが出ません（`/Library/Input Methods` に
+`-T` で mlh を許可しておくと、キーを読むときの確認ダイアログが出ません（`/Library/Input Methods` に
 入れた場合はそちらのパスを指定）。付けなかった場合は、初回に出るダイアログで「常に許可」を選んでください。
 
 `translate into English: 今日はいい天気x/` + Space で、行が翻訳結果に置き換わります。
@@ -301,7 +303,7 @@ Egg は通常候補一覧を表示しませんが、本実装では同じ文節�
 
 `d` 方式（`foo` + `d/`）で使う辞書（`mlh-userdef-table` 相当）です。
 
-- 場所: `~/Library/Application Support/MLH/userdict.txt`
+- 場所: `~/Library/Application Support/mlh/userdict.txt`
 - 形式: UTF-8、1 行 1 エントリ、タブ区切りで `キー<TAB>候補1[<TAB>候補2...]`
 - 空行と `#` で始まる行は無視されます。同じキーが複数回あると後の行が優先されます。
 - キーに使える文字は英字と `-` です。
@@ -342,7 +344,7 @@ date	2026年	令和8年
     defaults write com.github.kazu.inputmethod.mlh SyntheticDeletionApps -array com.example.app  # 合成バックスペースを使う
     defaults write com.github.kazu.inputmethod.mlh ReplacementRangeApps -array com.example.app   # replacementRange を使う
     ```
-  - タイプ履歴は MLH を通して入力した文字だけを記録し、Return・矢印キー・マウスクリック・
+  - タイプ履歴は mlh を通して入力した文字だけを記録し、Return・矢印キー・マウスクリック・
     ⌘/Ctrl 付きのキーなどでリセットされます。カーソルを動かした後や貼り付けた文字列は変換できません。
   - バックスペースを合成する場合は、トリガーのスペースもいったんアプリに入力させ、元の文字列と一緒に
     消します（Ghostty などは IME が処理したスペースも入力してしまうため）。合成には

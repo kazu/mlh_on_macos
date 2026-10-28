@@ -17,7 +17,7 @@ public struct UserDictionary {
 
     public static var defaultURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/MLH/userdict.txt")
+            .appendingPathComponent("Library/Application Support/mlh/userdict.txt")
     }
 
     public static func load(from url: URL) -> UserDictionary {
