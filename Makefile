@@ -32,7 +32,7 @@ INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 SIGN_NAME    := MLH Local Code Signing
 SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
 
-.PHONY: all build test install uninstall clean signing-identity
+.PHONY: all build test install install-system uninstall clean signing-identity
 
 all: build
 
@@ -70,6 +70,18 @@ install: build
 	rm -rf "$(INSTALLED)"
 	cp -R "$(APP)" "$(INSTALLED)"
 	swift scripts/register.swift "$(INSTALLED)"
+
+# Installs into /Library/Input Methods (needs sudo). Sandboxed apps such as
+# the App Store version of Slack may not see input methods in ~/Library.
+SYSTEM_INSTALLED := /Library/Input Methods/$(APP_NAME).app
+
+install-system: build
+	-killall $(APP_NAME) 2>/dev/null
+	rm -rf "$(INSTALLED)"
+	sudo rm -rf "$(SYSTEM_INSTALLED)"
+	sudo cp -R "$(APP)" "$(SYSTEM_INSTALLED)"
+	sudo chown -R root:wheel "$(SYSTEM_INSTALLED)"
+	swift scripts/register.swift "$(SYSTEM_INSTALLED)"
 
 uninstall:
 	-killall $(APP_NAME) 2>/dev/null

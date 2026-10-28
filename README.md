@@ -29,6 +29,20 @@ make clean      # build/ を削除
 `make install` は実行中の MLH プロセスを終了し（`killall MLH`）、アプリを置き換えたうえで
 `scripts/register.swift` で `TISRegisterInputSource` / `TISEnableInputSource` を呼び出します。
 
+#### App Store 版のアプリ（Slack など）でも使う場合
+
+サンドボックスで動く App Store 版のアプリからは、`~/Library/Input Methods` に置いた入力メソッドが
+見えないことがあります（App Store 版 Slack では MLH に切り替えられず、ショートカットで切り替えると
+Slack が落ちました）。その場合はシステム全体の場所に入れてください。
+
+```sh
+make install-system   # /Library/Input Methods/MLH.app に配置（sudo が必要）
+```
+
+初めて `/Library/Input Methods` に入れたときは、**一度ログアウトしてログインし直す**まで
+システム設定の一覧に出てきません。以後の更新（`make install-system` の再実行）ではログアウトは不要です。
+アクセシビリティの許可も `/Library/Input Methods/MLH.app` に対して追加し直してください。
+
 ### 入力ソースへの追加（初回のみ）
 
 最近の macOS では、サードパーティの入力メソッドをプログラムから有効化しても反映されないため、
