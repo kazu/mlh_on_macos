@@ -16,6 +16,10 @@ import Foundation
 // side by side. Emacs-only schemes are left out: `L` (evaluate Lisp) and
 // `g` (mlh-greek, which egg never defined) fall into the "not in table"
 // branch, exactly like any other character.
+//
+// Additions not in egg-mlh.el: `l` converts Latin-1 postfix notation
+// (egg reserved `l` for an unimplemented "ligature"), and `x`, when an
+// external command is configured, stands in for `mlh-userdef-function`.
 
 /// A user-dictionary entry with several candidates, waiting for the user to choose.
 public struct MLHSelection: Equatable {
@@ -34,6 +38,18 @@ public struct MLHOutcome: Equatable {
     /// When true, `text[henkanBegin...]` goes through kanji conversion
     /// (`egg-convert-region henkan-begin (point)`).
     public let convertToKanji: Bool
+    /// When set, `text[executeBegin...]` is handed to the external command
+    /// (`x`) and replaced with its output.
+    public let executeBegin: Int?
+
+    public init(text: String, selections: [MLHSelection], henkanBegin: Int, convertToKanji: Bool,
+                executeBegin: Int? = nil) {
+        self.text = text
+        self.selections = selections
+        self.henkanBegin = henkanBegin
+        self.convertToKanji = convertToKanji
+        self.executeBegin = executeBegin
+    }
 
     /// Re-renders `text` with the given candidate index for each selection.
     public func render(choices: [Int]) -> (text: String, henkanBegin: Int) {
@@ -62,6 +78,9 @@ public enum MLHResult: Equatable {
 
 public final class MLHEngine {
     public var userDictionary: UserDictionary
+    /// Whether `x` hands the line to an execute backend. Asked only when
+    /// an `x/` is converted.
+    public var executeAvailable: () -> Bool = { false }
 
     public init(userDictionary: UserDictionary = UserDictionary()) {
         self.userDictionary = userDictionary
@@ -70,7 +89,8 @@ public final class MLHEngine {
     /// `mlh-space-bar-backward-henkan`, run on the text that precedes the
     /// cursor (normally the current line).
     public func run(_ textBeforeCursor: String) -> MLHResult {
-        let state = MLHState(text: textBeforeCursor, userDictionary: userDictionary)
+        let state = MLHState(text: textBeforeCursor, userDictionary: userDictionary,
+                            executeAvailable: executeAvailable)
         do {
             try state.mlhBackwardHenkan()
         } catch let MLHError.message(msg) {
@@ -85,7 +105,8 @@ public final class MLHEngine {
         }.sorted { $0.range.lowerBound < $1.range.lowerBound }
         let convert = !state.inhibitHenkan && henkanBegin != state.point
         return .edit(MLHOutcome(text: String(state.buf), selections: selections,
-                                henkanBegin: henkanBegin, convertToKanji: convert))
+                                henkanBegin: henkanBegin, convertToKanji: convert,
+                                executeBegin: state.executeBegin))
     }
 }
 
@@ -100,7 +121,7 @@ final class Marker {
 
 enum Scheme {
     case kanji, capitalize, userDefined, hiragana, jisCode, katakana, upcaseLetter
-    case quit, smallLetter, whiteSpace, execute, hiraganaToKanji, zenkakuWhite, exit, zenkaku
+    case quit, smallLetter, whiteSpace, execute, hiraganaToKanji, zenkakuWhite, exit, zenkaku, latin
 }
 
 /// One activation of `mlh-backward-henkan` (its let-bound variables).
@@ -118,11 +139,16 @@ final class MLHState {
     var inhibitHenkan = true
     var selections: [(start: Marker, end: Marker, candidates: [String])] = []
     let userDictionary: UserDictionary
+    let executeAvailable: () -> Bool
+    var executeBegin: Int?
+    /// Nesting level of mlh-backward-henkan (1 for the word before the cursor).
+    var depth = 0
 
-    init(text: String, userDictionary: UserDictionary) {
+    init(text: String, userDictionary: UserDictionary, executeAvailable: @escaping () -> Bool = { false }) {
         buf = Array(text)
         point = buf.count
         self.userDictionary = userDictionary
+        self.executeAvailable = executeAvailable
     }
 
     // MARK: mlh-conversion-scheme-table
@@ -130,7 +156,7 @@ final class MLHState {
     static let conversionSchemeTable: [Character: Scheme] = [
         "-": .kanji, ",": .kanji, ".": .kanji,
         "a": .kanji, "c": .capitalize, "d": .userDefined, "e": .kanji, "f": .hiragana,
-        "i": .kanji, "j": .jisCode, "k": .katakana, "n": .kanji, "o": .kanji,
+        "i": .kanji, "j": .jisCode, "k": .katakana, "l": .latin, "n": .kanji, "o": .kanji,
         "p": .upcaseLetter, "q": .quit, "s": .smallLetter, "u": .kanji,
         "w": .whiteSpace, "x": .execute,
         "H": .hiraganaToKanji, "W": .zenkakuWhite, "X": .exit, "Z": .zenkaku,
@@ -149,6 +175,9 @@ final class MLHState {
     }
     static func capitalizeChar(_ c: Character) -> Bool {       // "a-zA-Z1-9"
         c.isASCII && (c.isLetter || ("1"..."9").contains(c))
+    }
+    static func latinChar(_ c: Character) -> Bool {          // letters and the postfix marks
+        c.isASCII && (c.isLetter || "`'^~\",*<>!?".contains(c))
     }
     static func digit(_ c: Character) -> Bool { ("0"..."9").contains(c) }
     static func hexDigit(_ c: Character) -> Bool { c.isASCII && c.isHexDigit }
@@ -227,6 +256,8 @@ final class MLHState {
         guard precedingChar == "/" else { return }
         let frame = Frame(endMarker: makeMarker(point, advances: true))
         defer { releaseMarker(frame.endMarker) }
+        depth += 1
+        defer { depth -= 1 }
         forwardChar(-1)
         if let ch = precedingChar, let scheme = Self.conversionSchemeTable[ch] {
             try call(scheme, frame)
@@ -257,6 +288,7 @@ final class MLHState {
         case .execute: try mlhExecute(f)
         case .hiraganaToKanji: try mlhHiraganaToKanji(f)
         case .zenkaku: try mlhZenkaku(f)
+        case .latin: try mlhCaseRegion(f, Self.latinChar, TextTransform.latin1Postfix)
         }
     }
 
@@ -329,9 +361,17 @@ final class MLHState {
         if henkanBegin == nil { henkanBegin = beg }
     }
 
-    // mlh-execute, without a user-defined mlh-userdef-function.
+    // mlh-execute. The execute backend plays mlh-userdef-function: it gets
+    // the whole line before "x/" (only for the word before the cursor).
     func mlhExecute(_ f: Frame) throws {
         forwardChar(-1)
+        if depth == 1 && executeAvailable() {
+            point = f.endMarker.pos
+            backwardDeleteChar(2)
+            executeBegin = 0
+            henkanBegin = 0
+            return
+        }
         let beg = try recurseAndDropScheme(f)
         if henkanBegin == nil { henkanBegin = beg }
     }

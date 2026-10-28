@@ -75,6 +75,46 @@ func runEngineTests() -> (passed: Int, failed: Int) {
     ]
     for (input, want) in cases { check("run \(input)", engine.run(input), want) }
 
+    // Latin-1 postfix (l).
+    let latin: [(String, String)] = [
+        ("espan~ol", "español"), ("cafe'", "café"), ("nai\"ve", "naïve"), ("garc,on", "garçon"),
+        ("smo*rgasbord", "smørgasbord"), ("Stras*e", "Straße"), ("<<oui>>", "«oui»"),
+        ("e''", "e'"), ("don't", "don't"), ("A`", "À"), ("?*Que'", "¿Qué"),
+    ]
+    for (p, l) in latin { check("latin \(p)", TextTransform.latin1Postfix(p), l) }
+    check("run latin", engine.run("hola espan~oll/"), edit("hola español", 5, convert: false))
+    check("run latin chain", engine.run("cafe'l/nomu/"), edit("caféのむ", 0, convert: true))
+
+    // External command (x).
+    let xEngine = MLHEngine()
+    xEngine.executeAvailable = { true }
+    check("execute line", xEngine.run("translate: こんにちはx/"),
+          .edit(MLHOutcome(text: "translate: こんにちは", selections: [], henkanBegin: 0,
+                           convertToKanji: false, executeBegin: 0)))
+    check("execute inner", xEngine.run("foox/bars/"), edit("foo bar", 4, convert: false))
+
+    // OpenAI request / stream parsing.
+    var config = OpenAI.Config(defaults: UserDefaults(suiteName: "mlh-tests-none")!)
+    config.baseURL = "https://example.com/v1/"
+    let req = OpenAI.request("今日は\"晴れ\"", config: config, apiKey: "k")
+    check("openai url", req?.url?.absoluteString, "https://example.com/v1/chat/completions")
+    check("openai auth", req?.value(forHTTPHeaderField: "Authorization"), "Bearer k")
+    let body = (try? JSONSerialization.jsonObject(with: req?.httpBody ?? Data())) as? [String: Any]
+    let messages = body?["messages"] as? [[String: String]]
+    check("openai input", messages?.last?["content"], "今日は\"晴れ\"")
+    check("openai stream", body?["stream"] as? Bool, true)
+    check("openai no effort", body?["reasoning_effort"] == nil, true)
+    config.reasoningEffort = "none"
+    let body2 = (try? JSONSerialization.jsonObject(with: OpenAI.requestBody("x", config: config))) as? [String: Any]
+    check("openai effort", body2?["reasoning_effort"] as? String, "none")
+    check("openai no key", OpenAI.request("x", config: config, apiKey: nil)?.value(forHTTPHeaderField: "Authorization"), nil)
+    check("openai full url", OpenAI.endpoint("http://h:1234/v1/chat/completions")?.absoluteString, "http://h:1234/v1/chat/completions")
+    check("sse delta", OpenAI.parseStreamLine(#"data: {"choices":[{"delta":{"content":"Hel\nlo"}}]}"#), .delta("Hel\nlo"))
+    check("sse role only", OpenAI.parseStreamLine(#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#), .ignored)
+    check("sse done", OpenAI.parseStreamLine("data: [DONE]"), .done)
+    check("sse other", OpenAI.parseStreamLine(": keep-alive"), .ignored)
+    check("openai error", OpenAI.errorMessage(Data(#"{"error":{"message":"bad key"}}"#.utf8)), "bad key")
+
     // User-defined table (d).
     let dict = UserDictionary.parse("# comment\nmlh\tModeless\nime\tIME\t入力\n")
     let udEngine = MLHEngine(userDictionary: dict)

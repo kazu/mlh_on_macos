@@ -10,9 +10,9 @@ macOS の入力メソッド (InputMethodKit) として再現したものです�
   例: `nihongo/` + Space → `日本語`（漢字変換モードに入ります）
 - 漢字変換は Egg の変換モード（`egg-conversion-map`）のキー操作を再現しています。
   変換候補は Google の変換 API (Google CGI API for Japanese Input) から取得します。
-- **現在は日本語のみ対応しています。** Egg（たまご）は多言語の入力システムで、日本語のほかにも
-  中国語（ピンイン・注音）、韓国語（ハングル）、タイ語、ギリシャ文字、アイヌ語のカナなど、
-  多くの言語・文字を扱えました。日本語以外の言語・文字への対応はこれからです。
+- **現在は日本語と Latin-1（`l` 方式）のみ対応しています。** Egg（たまご）は多言語の入力システムで、
+  日本語のほかにも中国語（ピンイン・注音）、韓国語（ハングル）、タイ語、ギリシャ文字、アイヌ語のカナなど、
+  多くの言語・文字を扱えました。それ以外の言語・文字への対応はこれからです。
 
 ## 必要環境
 
@@ -99,6 +99,7 @@ unixp/       + Space → UNIX
 3w/          + Space → 半角スペース 3 個
 fullZ/       + Space → ｆｕｌｌ
 3042j/       + Space → 安          （JIS コード 0x3042）
+espan~oll/   + Space → español     （Latin-1）
 and/orq/     + Space → and/or      （q/ を取り除くだけ。リテラルの "/" を残したいとき）
 ```
 
@@ -118,6 +119,7 @@ and/orq/     + Space → and/or      （q/ を取り除くだけ。リテラル�
 | `H` | Hiragana to kanji | 直前のひらがなを漢字変換 |
 | `f` | (h)iragana | ローマ字 → ひらがな |
 | `k` | Katakana | ローマ字 → カタカナ |
+| `l` | Latin-1 | 後置記法で Latin-1 の文字に（`espan~oll/` → `español`、下記参照）。egg では未実装だった ligature の枠を使っています |
 | `c` | Capitalize | 先頭を大文字に（`emacsc/` → `Emacs`） |
 | `p` | uPcase | 大文字に（`unixp/` → `UNIX`） |
 | `s` | Small letter | 変換しない（`s/` を取り除くだけ） |
@@ -128,10 +130,94 @@ and/orq/     + Space → and/or      （q/ を取り除くだけ。リテラル�
 | `d` | user Definition | ユーザー辞書で置換（候補が複数あれば選択モード。未登録なら `?udef?`） |
 | `q` | Quit | ここで遡りを止める（`q/` を取り除く） |
 | `X` | eXit | ここで遡りを止め、空白を 1 つ入れる |
-| `x` | eXecute | ユーザー定義関数（本実装では未対応のため `x/` を取り除くだけ） |
+| `x` | eXecute | 行を外部コマンドか OpenAI に渡し、その結果で置き換える（下記参照）。どちらも設定がなければ `x/` を取り除くだけ |
 | その他 | | 変換せず、普通にスペースを入力 |
 
 Emacs 固有の `L`（Lisp 式の評価）と、egg で未定義の `g`（ギリシャ文字）は対応していません。
+
+### Latin-1（`l`）
+
+Emacs の `latin-1-postfix` と同じく、文字の後ろに記号を付けます。
+
+| 書き方 | 文字 |
+|---|---|
+| `` a` `` `a'` `a^` `a~` `a"` | à á â ã ä（`e i o u y n` も同様。Latin-1 にある組み合わせのみ） |
+| `c,` | ç |
+| `a*` `e*` `o*` `d*` `t*` `s*` | å æ ø ð þ ß（`latin-1-postfix` の `/` の代わりに `*`。`/` は mlh の区切りのため） |
+| `<<` `>>` `!*` `?*` | « » ¡ ¿ |
+
+記号を 2 つ重ねると記号のまま残ります（`e''` → `e'`）。大文字も同様です（`` A` `` → À）。
+
+### 行の書き換え（`x`）
+
+egg の `mlh-userdef-function` の代わりに、`x/` の直前の行全体（`x/` は除く）を
+**外部コマンド** か **組み込みの OpenAI 呼び出し** に渡し、その結果で行を置き換えます。
+
+- 実行中は行が未確定の状態で表示されます（OpenAI では返答が届いた分から順に表示）。
+  Esc / Ctrl-G で中止できます（行はそのまま残ります）。
+- 失敗した場合や 60 秒で終わらない場合は、ビープ音を鳴らして行をそのまま残します。
+- `x` が働くのは、カーソル直前の語（最後の `x/`）の場合だけです。
+- 出力に改行が含まれると、そのまま改行として入力されます（ターミナルではコマンドが実行されることがあります）。
+
+どちらを使うかは次の設定で選びます。
+
+```sh
+defaults write com.github.kazu.inputmethod.mlh ExecuteBackend command   # 外部コマンド
+defaults write com.github.kazu.inputmethod.mlh ExecuteBackend openai    # 組み込みの OpenAI
+```
+
+設定しない場合は、外部コマンドのファイルがあればそれを、なければ OpenAI の API キーがあれば OpenAI を使います。
+どちらもなければ `x/` を取り除くだけです（egg と同じ）。
+
+#### 外部コマンド
+
+`~/Library/Application Support/MLH/execute` に実行可能ファイルを置きます。
+行を標準入力に渡し、標準出力（末尾の改行は除く）で置き換えます。終了コードが 0 以外なら失敗です。
+環境変数 `MLH_CLIENT_BUNDLE_ID` に入力先アプリのバンドル ID が入ります。
+
+```sh
+#!/bin/sh
+# 例: 行を大文字にする
+tr a-z A-Z
+```
+
+#### 組み込みの OpenAI
+
+IME から直接 OpenAI の Chat Completions API を呼びます（シェルなどは経由しません。接続は使い回します）。
+API キーはログインキーチェーンに保存します。
+
+```sh
+security add-generic-password -s mlh-openai -a "$USER" -w 'sk-...' \
+  -T "$HOME/Library/Input Methods/MLH.app"
+```
+
+`-T` で MLH を許可しておくと、キーを読むときの確認ダイアログが出ません（`/Library/Input Methods` に
+入れた場合はそちらのパスを指定）。付けなかった場合は、初回に出るダイアログで「常に許可」を選んでください。
+
+`translate into English: 今日はいい天気x/` + Space で、行が翻訳結果に置き換わります。
+次の設定で、モデル、指示（システムプロンプト）、接続先（OpenAI 互換のサーバー）を変えられます。
+
+```sh
+defaults write com.github.kazu.inputmethod.mlh OpenAIModel gpt-4o-mini
+defaults write com.github.kazu.inputmethod.mlh OpenAIInstructions '...'
+defaults write com.github.kazu.inputmethod.mlh OpenAIBaseURL https://api.openai.com/v1
+defaults write com.github.kazu.inputmethod.mlh OpenAIReasoningEffort none   # 設定したときだけ reasoning_effort を送る
+```
+
+LM Studio や Ollama など、手元の OpenAI 互換サーバーも使えます。キーチェーンに API キーがなければ
+認証なしで送ります（その場合は `ExecuteBackend` を `openai` に設定してください）。
+思考（reasoning）をするモデルは返答までに時間がかかるので、`OpenAIReasoningEffort none` で
+止めると速くなります（LM Studio の gemma-4-e2b で約 3 秒 → 0.2 秒）。
+
+```sh
+defaults write com.github.kazu.inputmethod.mlh ExecuteBackend openai
+defaults write com.github.kazu.inputmethod.mlh OpenAIBaseURL http://192.168.0.10:1234/v1
+defaults write com.github.kazu.inputmethod.mlh OpenAIModel google/gemma-4-e2b
+defaults write com.github.kazu.inputmethod.mlh OpenAIReasoningEffort none
+```
+
+macOS 15 以降では、LAN 内のサーバーに初めて接続するときに「ローカルネットワーク」へのアクセスの
+確認が出るので許可してください。エラーの内容はログ（後述）に記録されます。
 
 ### 候補選択モード（ユーザー辞書の候補が複数あるとき）
 
@@ -192,6 +278,7 @@ date	2026年	令和8年
 漢字変換では、変換対象の読み（ひらがな）を **Google のサーバー**
 （`https://www.google.com/transliterate`）へ送信します。漢字変換を行う方式（`a i u e o n - , .` と `H`）
 以外の変換は、すべて端末内で処理され、外部には送信されません。
+ただし `x` 方式を使うと、行が外部コマンドに渡されるか、組み込みの OpenAI 呼び出しでは **OpenAI のサーバー** に送信されます。
 この API は Google が無償で公開しているものですが、提供が予告なく変更・終了される可能性があります。
 その場合、漢字変換は読み（ひらがな・カタカナ）の候補だけになります。
 ログ（`log stream --predicate 'subsystem == "com.github.kazu.inputmethod.mlh"' --level debug`）には、
@@ -221,9 +308,9 @@ date	2026年	令和8年
     アクセシビリティの許可が必要で、許可がない場合はビープ音を鳴らしてスペースを入力します。
 - 漢字変換の範囲に英数字が含まれると、Google の変換結果では全角になることがあります。
 - 漢字変換はネットワーク接続が必要です。通信できない場合は読み（ひらがな）のまま変換モードに入ります。
-- 日本語以外の言語・文字（Egg が対応していた中国語・韓国語・タイ語・ギリシャ文字など）は今後対応予定です。
+- 日本語と Latin-1 以外の言語・文字（Egg が対応していた中国語・韓国語・タイ語・ギリシャ文字など）は今後対応予定です。
 - 一度に遡るのは現在行のカーソル直前、最大 1024 文字（UTF-16）までです。
-- `L`（Lisp 式）と `x` のユーザー定義関数には対応していません。
+- `L`（Lisp 式）には対応していません。`x` は Lisp 関数の代わりに外部コマンドか OpenAI を呼びます。
 
 ## ライセンス
 

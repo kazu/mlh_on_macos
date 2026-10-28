@@ -14,7 +14,11 @@ private let notFoundRange = NSRange(location: NSNotFound, length: 0)
 final class MLHShared {
     static let shared = MLHShared()
 
-    let engine = MLHEngine()
+    let engine: MLHEngine = {
+        let engine = MLHEngine()
+        engine.executeAvailable = { Execute.backend != nil }
+        return engine
+    }()
     private var dictionaryLoaded = false
     private var dictionaryModified: Date?
 
@@ -69,11 +73,17 @@ final class ConversionTask {
     }
 }
 
-/// Waiting for a `ConversionTask`; keys typed meanwhile are replayed afterwards.
+/// Waiting for a `ConversionTask` or an `ExecuteTask`; keys typed meanwhile are
+/// replayed afterwards.
 final class WaitState {
-    let task: ConversionTask
+    /// Shown as marked text, and committed if the wait is given up.
+    let source: String
+    let cancel: () -> Void
     var queued: [NSEvent] = []
-    init(task: ConversionTask) { self.task = task }
+    init(source: String, cancel: @escaping () -> Void = {}) {
+        self.source = source
+        self.cancel = cancel
+    }
 }
 
 enum InputState {
@@ -248,8 +258,14 @@ final class MLHInputController: IMKInputController {
             return handleSelecting(s, key: key, event: event, client: client)
         case .waiting(let w):
             if key.cmd {
-                finish(committing: w.task.source, client: client)
+                w.cancel()
+                finish(committing: w.source, client: client)
                 return false
+            }
+            if key.keyCode == KeyCode.escape || key.ctrlLetter == "g" {
+                w.cancel()
+                finish(committing: w.source, client: client)
+                return true
             }
             if w.queued.count < 64 { w.queued.append(event) }
             return true
@@ -338,6 +354,7 @@ final class MLHInputController: IMKInputController {
         case none
         case select(SelectState)
         case convert(ConversionTask)
+        case execute(ExecuteTask)
     }
 
     /// Replaces the context with the engine's outcome, entering selection or
@@ -350,6 +367,10 @@ final class MLHInputController: IMKInputController {
 
         var markStart: Int? = outcome.selections.first?.range.lowerBound
         if kanji { markStart = min(markStart ?? Int.max, outcome.henkanBegin) }
+        let executeTask = outcome.executeBegin.flatMap {
+            Execute.makeTask(source: TextContext.slice(newText, $0), clientBundleID: client.bundleIdentifier())
+        }
+        if executeTask != nil, let begin = outcome.executeBegin { markStart = min(markStart ?? Int.max, begin) }
 
         let old = context.text
         let prefixLength = min(TextContext.commonPrefixLength(old, newText), markStart ?? Int.max)
@@ -360,7 +381,9 @@ final class MLHInputController: IMKInputController {
         // conversion does a synchronous network request).
         let pending: Pending
         if let markStart {
-            if !outcome.selections.isEmpty {
+            if let executeTask {
+                pending = .execute(executeTask)
+            } else if !outcome.selections.isEmpty {
                 pending = .select(SelectState(outcome: outcome,
                                               choices: Array(repeating: 0, count: outcome.selections.count),
                                               k: 0, markStart: markStart))
@@ -411,6 +434,8 @@ final class MLHInputController: IMKInputController {
             updateSelecting(s, client: client, replacement: replacement)
         case .convert(let task):
             enterConversion(task, client: client, replacement: replacement)
+        case .execute(let task):
+            enterExecution(task, client: client, replacement: replacement)
         }
     }
 
@@ -422,25 +447,58 @@ final class MLHInputController: IMKInputController {
             enterConversion(conversion, client: client, replacement: replacement)
             return
         }
-        let wait = WaitState(task: task)
-        state = .waiting(wait)
-        let attributed = NSMutableAttributedString(string: task.source)
-        let range = NSRange(location: 0, length: attributed.length)
-        attributed.addAttributes(markAttributes(style: Int(kTSMHiliteConvertedText), range: range), range: range)
-        client.setMarkedText(attributed, selectionRange: NSRange(location: range.length, length: 0),
-                             replacementRange: replacement)
+        let wait = WaitState(source: task.source)
+        startWaiting(wait, client: client, replacement: replacement)
         task.whenReady { [weak self] conversion in
             guard let self, case .waiting(let current) = self.state, current === wait else { return }
             let target = self.currentClient ?? client
             self.enterConversion(conversion, client: target, replacement: notFoundRange)
-            for event in wait.queued {
-                // Keys the conversion doesn't consume would have gone to the app.
-                if !self.handle(event, client: target), let chars = event.characters, !chars.isEmpty,
-                   !event.modifierFlags.contains(.control),
-                   chars.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F && $0.value < 0xF700 }) {
-                    target.insertText(chars, replacementRange: notFoundRange)
-                    self.typed.append(chars)
-                }
+            self.replay(wait.queued, client: target)
+        }
+    }
+
+    /// Shows the line as marked text while the `x` backend runs (replaced by
+    /// the output as it streams in), then commits the output, or the line
+    /// unchanged, with a beep, when it failed.
+    private func enterExecution(_ task: ExecuteTask, client: MLHClient, replacement: NSRange) {
+        let wait = WaitState(source: task.source, cancel: task.cancel)
+        startWaiting(wait, client: client, replacement: replacement)
+        if !task.partial.isEmpty { showMarked(task.partial, client: client) }
+        task.onProgress = { [weak self] text in
+            guard let self, case .waiting(let current) = self.state, current === wait else { return }
+            self.showMarked(text, client: self.currentClient ?? client)
+        }
+        task.whenReady { [weak self] output in
+            guard let self, case .waiting(let current) = self.state, current === wait else { return }
+            let target = self.currentClient ?? client
+            if output == nil { NSSound.beep() }
+            self.finish(committing: output ?? task.source, client: target)
+            self.replay(wait.queued, client: target)
+        }
+    }
+
+    private func startWaiting(_ wait: WaitState, client: MLHClient, replacement: NSRange) {
+        state = .waiting(wait)
+        showMarked(wait.source, client: client, replacement: replacement)
+    }
+
+    private func showMarked(_ text: String, client: MLHClient, replacement: NSRange = notFoundRange) {
+        let attributed = NSMutableAttributedString(string: text)
+        let range = NSRange(location: 0, length: attributed.length)
+        attributed.addAttributes(markAttributes(style: Int(kTSMHiliteConvertedText), range: range), range: range)
+        client.setMarkedText(attributed, selectionRange: NSRange(location: range.length, length: 0),
+                             replacementRange: replacement)
+    }
+
+    /// Handles keys typed while waiting.
+    private func replay(_ events: [NSEvent], client: MLHClient) {
+        for event in events {
+            // Keys that aren't consumed would have gone to the app.
+            if !handle(event, client: client), let chars = event.characters, !chars.isEmpty,
+               !event.modifierFlags.contains(.control),
+               chars.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F && $0.value < 0xF700 }) {
+                client.insertText(chars, replacementRange: notFoundRange)
+                typed.append(chars)
             }
         }
     }
@@ -707,8 +765,9 @@ final class MLHInputController: IMKInputController {
                 commitSelecting(s, client: client)
             }
         case .waiting(let w):
+            w.cancel()
             if let client {
-                finish(committing: w.task.source, client: client)
+                finish(committing: w.source, client: client)
             }
         case .converting(let conv):
             if let client {

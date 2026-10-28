@@ -82,5 +82,12 @@
 	</array>
 	<key>tsInputMethodIconFileKey</key>
 	<string>icon.tiff</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MLH sends the line before x/ to the LLM server you configured.</string>
 </dict>
 </plist>
