@@ -27,12 +27,17 @@ TEST_SOURCES := $(wildcard Tests/*.swift)
 INSTALL_DIR  := $(HOME)/Library/Input Methods
 INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 
-.PHONY: all build test install uninstall clean
+# Signing identity: the self-signed one from scripts/make-signing-identity.sh
+# when it exists (keeps the Accessibility permission across rebuilds), else ad-hoc.
+SIGN_NAME    := MLH Local Code Signing
+SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
+
+.PHONY: all build test install uninstall clean signing-identity
 
 all: build
 
 build: $(EXECUTABLE) $(PLIST) $(ICON) $(STRINGS)
-	codesign --force --sign - "$(APP)"
+	codesign --force --sign "$(SIGN_IDENTITY)" "$(APP)"
 	@echo "built $(APP)"
 
 $(EXECUTABLE): $(CORE_SOURCES) $(IME_SOURCES)
@@ -73,3 +78,6 @@ uninstall:
 
 clean:
 	rm -rf "$(BUILD_DIR)"
+
+signing-identity:
+	scripts/make-signing-identity.sh "$(SIGN_NAME)"
