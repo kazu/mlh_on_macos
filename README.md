@@ -189,6 +189,8 @@ date	2026年	令和8年
 漢字変換では、変換対象の読み（ひらがな）を **Google のサーバー**
 （`https://www.google.com/transliterate`）へ送信します。漢字変換を行う方式（`a i u e o n - , .` と `H`）
 以外の変換は、すべて端末内で処理され、外部には送信されません。
+この API は Google が無償で公開しているものですが、提供が予告なく変更・終了される可能性があります。
+その場合、漢字変換は読み（ひらがな・カタカナ）の候補だけになります。
 ログ（`log stream --predicate 'subsystem == "com.github.kazu.inputmethod.mlh"' --level debug`）には、
 入力テキストはプライベート扱いでしか記録されません。
 
