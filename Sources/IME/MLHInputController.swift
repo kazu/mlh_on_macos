@@ -14,11 +14,7 @@ private let notFoundRange = NSRange(location: NSNotFound, length: 0)
 final class MLHShared {
     static let shared = MLHShared()
 
-    let engine: MLHEngine = {
-        let engine = MLHEngine()
-        engine.executeAvailable = { Execute.isAvailable($0) }
-        return engine
-    }()
+    let engine = MLHEngine()
     private var dictionaryLoaded = false
     private var dictionaryModified: Date?
 
@@ -317,6 +313,8 @@ final class MLHInputController: IMKInputController {
         }
         log.debug("space: context from \(context.isFallback ? "typed buffer" : "client API", privacy: .public): \(context.text, privacy: .private)")
 
+        let app = client.bundleIdentifier()
+        shared.engine.executeAvailable = { Execute.isAvailable($0, app: app) }
         let result = shared.engine.run(context.text)
         switch result {
         case .passThrough:

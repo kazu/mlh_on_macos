@@ -188,6 +188,28 @@ defaults write com.github.kazu.inputmethod.mlh ExecuteBackend openai    # 組み
 - ファイルは変換のたびに読み直すので、編集後に再起動は不要です。
 - `execute.json` にない番号は変換せず、数字は文字のまま残ります（`version 3x/` → `version 3`）。
 
+#### アプリごとの設定
+
+`"apps"` の下に、入力先アプリのバンドル ID ごとの設定を書くと、そのアプリでだけ上書きされます。
+書いていないアプリでは、これまでどおりの設定で動きます。
+
+```json
+{
+  "2": { "instructions": "Translate into English." },
+  "apps": {
+    "com.tinyspeck.slackmacgap": {
+      "instructions": "…くだけた口調の日本語に…",
+      "2": { "instructions": "Translate into casual English." }
+    },
+    "com.apple.mail": { "instructions": "…丁寧なビジネス文に…" }
+  }
+}
+```
+
+- アプリの項目に直接書いた設定は `x/`（番号なし）に、番号の項目は `2x/` などに使われます
+  （番号付きは、全体の `"2"` にアプリの `"2"` を重ねたものになります）。
+- バンドル ID は `osascript -e 'id of app "Slack"'` で調べられます。
+
 #### 外部コマンド
 
 `~/Library/Application Support/MLH/execute` に実行可能ファイルを置きます。

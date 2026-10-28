@@ -98,10 +98,19 @@ func runEngineTests() -> (passed: Int, failed: Int) {
     // An unconfigured number stays in the text, and x/ is just removed (egg).
     check("execute unknown number", xEngine.run("version 3x/"),
           .edit(MLHOutcome(text: "version 3", selections: [], henkanBegin: 9, convertToKanji: false)))
-    let settings = ExecuteSettings.parse(Data(#"{"2": {"instructions": "To English."}, "9": {"command": "~/bin/f"}, "bad": 1}"#.utf8))
-    check("settings keys", settings.keys.sorted(), ["2", "9"])
-    check("settings backend", [settings["2"]?.resolvedBackend, settings["9"]?.resolvedBackend], ["openai", "command"])
-    check("settings apply", settings["2"]?.apply(to: OpenAI.Config(defaults: UserDefaults(suiteName: "mlh-tests-none")!)).instructions, "To English.")
+    let file = ExecuteFile.parse(Data(#"""
+        {"2": {"instructions": "To English."}, "9": {"command": "~/bin/f"}, "bad": 1,
+         "apps": {"com.slack": {"instructions": "Casual.", "2": {"model": "big"}},
+                  "com.mail": {"3": {"instructions": "Formal."}}}}
+        """#.utf8))
+    check("settings keys", file.entries.keys.sorted(), ["2", "9"])
+    check("settings backend", [file.entries["2"]?.resolvedBackend, file.entries["9"]?.resolvedBackend], ["openai", "command"])
+    check("settings apply", file.entries["2"]?.apply(to: OpenAI.Config(defaults: UserDefaults(suiteName: "mlh-tests-none")!)).instructions, "To English.")
+    check("app plain x", file.settings(for: nil, app: "com.slack"), ExecuteSettings(instructions: "Casual."))
+    check("app numbered merges", file.settings(for: "2", app: "com.slack"), ExecuteSettings(model: "big", instructions: "To English."))
+    check("app only number", file.settings(for: "3", app: "com.mail"), ExecuteSettings(instructions: "Formal."))
+    check("other app", file.settings(for: "3", app: "com.other"), nil)
+    check("no app plain x", file.settings(for: nil, app: "com.other"), nil)
 
     // OpenAI request / stream parsing.
     var config = OpenAI.Config(defaults: UserDefaults(suiteName: "mlh-tests-none")!)

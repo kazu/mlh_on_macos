@@ -18,7 +18,8 @@ protocol ExecuteTask: AnyObject {
 }
 
 /// Chooses the backend for `x`. `Nx/` (a number before x) uses entry N of
-/// execute.json (see `ExecuteSettings`); plain `x/`:
+/// execute.json, and per-app entries there override both (see
+/// `ExecuteFile`); otherwise plain `x/`:
 ///   defaults write com.github.kazu.inputmethod.mlh ExecuteBackend command|openai
 /// Without the setting: the command if ~/Library/Application Support/MLH/execute
 /// exists, else OpenAI if its API key is in the keychain, else nothing (`x/`
@@ -35,25 +36,25 @@ enum Execute {
         return nil
     }
 
-    static func isAvailable(_ key: String?) -> Bool {
-        guard let key else { return backend != nil }
-        return ExecuteSettings.load()[key] != nil
+    static func isAvailable(_ key: String?, app: String?) -> Bool {
+        if ExecuteFile.load().settings(for: key, app: app) != nil { return true }
+        return key == nil && backend != nil
     }
 
-    static func makeTask(source: String, key: String?, clientBundleID: String?) -> ExecuteTask? {
-        if let key {
-            guard let settings = ExecuteSettings.load()[key] else { return nil }
-            if settings.resolvedBackend == "command" {
-                let url = settings.command.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-                return CommandTask(source: source, url: url ?? CommandTask.url, clientBundleID: clientBundleID)
-            }
-            return OpenAITask(source: source, config: settings.apply(to: OpenAI.Config()))
+    static func makeTask(source: String, key: String?, clientBundleID app: String?) -> ExecuteTask? {
+        let settings = ExecuteFile.load().settings(for: key, app: app)
+        if key != nil && settings == nil { return nil }
+        let s = settings ?? ExecuteSettings()
+        // Plain x/ keeps the default backend unless the app entry names one.
+        let defaultBackend = key == nil ? backend : nil
+        if key == nil && settings == nil && defaultBackend == nil { return nil }
+        let useCommand = s.backend.map { $0 == "command" }
+            ?? (s.command != nil || (defaultBackend ?? .openai) == .command)
+        if useCommand {
+            let url = s.command.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            return CommandTask(source: source, url: url ?? CommandTask.url, clientBundleID: app)
         }
-        switch backend {
-        case .command: return CommandTask(source: source, url: CommandTask.url, clientBundleID: clientBundleID)
-        case .openai: return OpenAITask(source: source, config: OpenAI.Config())
-        case nil: return nil
-        }
+        return OpenAITask(source: source, config: s.apply(to: OpenAI.Config()))
     }
 }
 
