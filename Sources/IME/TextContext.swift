@@ -182,7 +182,7 @@ enum TextContext {
     /// Interval between synthetic Backspaces. Posting them back to back lets
     /// terminal apps receive several DEL bytes in one read, and some TUIs
     /// (e.g. Claude Code in Ghostty) then count them as a single Backspace.
-    static let backspaceInterval: TimeInterval = 0.02
+    static let backspaceInterval: TimeInterval = 0.005
 
     /// Posts `count` Backspace key presses to the HID event tap, one every
     /// `backspaceInterval` seconds.

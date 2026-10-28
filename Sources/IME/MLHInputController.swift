@@ -43,9 +43,43 @@ struct SelectState {
     var currentSelection: MLHSelection { outcome.selections[k] }
 }
 
+/// A kanji conversion running in the background (the Google request takes
+/// 0.1–0.3 s), so that the document can be edited meanwhile.
+final class ConversionTask {
+    let source: String
+    private(set) var result: KanjiConversion?
+    private var waiters: [(KanjiConversion) -> Void] = []
+
+    init(source: String) {
+        self.source = source
+        DispatchQueue.global(qos: .userInitiated).async {
+            let conversion = KanjiConversion(source: source, transliterator: GoogleTransliterator())
+            DispatchQueue.main.async {
+                self.result = conversion
+                let waiters = self.waiters
+                self.waiters = []
+                waiters.forEach { $0(conversion) }
+            }
+        }
+    }
+
+    /// Calls `f` on the main thread once the conversion is ready.
+    func whenReady(_ f: @escaping (KanjiConversion) -> Void) {
+        if let result { f(result) } else { waiters.append(f) }
+    }
+}
+
+/// Waiting for a `ConversionTask`; keys typed meanwhile are replayed afterwards.
+final class WaitState {
+    let task: ConversionTask
+    var queued: [NSEvent] = []
+    init(task: ConversionTask) { self.task = task }
+}
+
 enum InputState {
     case idle
     case selecting(SelectState)
+    case waiting(WaitState)
     case converting(KanjiConversion)
 }
 
@@ -212,6 +246,13 @@ final class MLHInputController: IMKInputController {
             return handleIdle(key, event: event, client: client)
         case .selecting(let s):
             return handleSelecting(s, key: key, event: event, client: client)
+        case .waiting(let w):
+            if key.cmd {
+                finish(committing: w.task.source, client: client)
+                return false
+            }
+            if w.queued.count < 64 { w.queued.append(event) }
+            return true
         case .converting(let conversion):
             return handleConverting(conversion, key: key, event: event, client: client)
         }
@@ -296,7 +337,7 @@ final class MLHInputController: IMKInputController {
     private enum Pending {
         case none
         case select(SelectState)
-        case convert(KanjiConversion)
+        case convert(ConversionTask)
     }
 
     /// Replaces the context with the engine's outcome, entering selection or
@@ -325,7 +366,7 @@ final class MLHInputController: IMKInputController {
                                               k: 0, markStart: markStart))
             } else {
                 let source = TextContext.slice(newText, outcome.henkanBegin)
-                pending = .convert(KanjiConversion(source: source, transliterator: GoogleTransliterator()))
+                pending = .convert(ConversionTask(source: source))
             }
         } else {
             pending = .none
@@ -368,8 +409,39 @@ final class MLHInputController: IMKInputController {
         case .select(let s):
             state = .selecting(s)
             updateSelecting(s, client: client, replacement: replacement)
-        case .convert(let conversion):
+        case .convert(let task):
+            enterConversion(task, client: client, replacement: replacement)
+        }
+    }
+
+    /// Shows the reading as marked text right away and switches to the
+    /// conversion once the background request finishes; keys typed in
+    /// between are replayed then.
+    private func enterConversion(_ task: ConversionTask, client: MLHClient, replacement: NSRange) {
+        if let conversion = task.result {
             enterConversion(conversion, client: client, replacement: replacement)
+            return
+        }
+        let wait = WaitState(task: task)
+        state = .waiting(wait)
+        let attributed = NSMutableAttributedString(string: task.source)
+        let range = NSRange(location: 0, length: attributed.length)
+        attributed.addAttributes(markAttributes(style: Int(kTSMHiliteConvertedText), range: range), range: range)
+        client.setMarkedText(attributed, selectionRange: NSRange(location: range.length, length: 0),
+                             replacementRange: replacement)
+        task.whenReady { [weak self] conversion in
+            guard let self, case .waiting(let current) = self.state, current === wait else { return }
+            let target = self.currentClient ?? client
+            self.enterConversion(conversion, client: target, replacement: notFoundRange)
+            for event in wait.queued {
+                // Keys the conversion doesn't consume would have gone to the app.
+                if !self.handle(event, client: target), let chars = event.characters, !chars.isEmpty,
+                   !event.modifierFlags.contains(.control),
+                   chars.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F && $0.value < 0xF700 }) {
+                    target.insertText(chars, replacementRange: notFoundRange)
+                    self.typed.append(chars)
+                }
+            }
         }
     }
 
@@ -455,12 +527,12 @@ final class MLHInputController: IMKInputController {
         if Self.needsKanji(s.outcome.convertToKanji, henkanBegin: begin, textCount: rendered.text.count) {
             let committed = TextContext.slice(rendered.text, s.markStart, begin)
             let source = TextContext.slice(rendered.text, begin)
-            let conversion = KanjiConversion(source: source, transliterator: GoogleTransliterator())
+            let task = ConversionTask(source: source)
             if !committed.isEmpty {
                 client.insertText(committed, replacementRange: notFoundRange)
                 typed.append(committed)
             }
-            enterConversion(conversion, client: client, replacement: notFoundRange)
+            enterConversion(task, client: client, replacement: notFoundRange)
         } else {
             commitSelecting(s, client: client)
         }
@@ -633,6 +705,10 @@ final class MLHInputController: IMKInputController {
         case .selecting(let s):
             if let client {
                 commitSelecting(s, client: client)
+            }
+        case .waiting(let w):
+            if let client {
+                finish(committing: w.task.source, client: client)
             }
         case .converting(let conv):
             if let client {
