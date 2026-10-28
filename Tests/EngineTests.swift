@@ -87,11 +87,21 @@ func runEngineTests() -> (passed: Int, failed: Int) {
 
     // External command (x).
     let xEngine = MLHEngine()
-    xEngine.executeAvailable = { true }
+    xEngine.executeAvailable = { $0 == nil || $0 == "2" }
     check("execute line", xEngine.run("translate: こんにちはx/"),
           .edit(MLHOutcome(text: "translate: こんにちは", selections: [], henkanBegin: 0,
                            convertToKanji: false, executeBegin: 0)))
     check("execute inner", xEngine.run("foox/bars/"), edit("foo bar", 4, convert: false))
+    check("execute numbered", xEngine.run("今日はいい天気2x/"),
+          .edit(MLHOutcome(text: "今日はいい天気", selections: [], henkanBegin: 0,
+                           convertToKanji: false, executeBegin: 0, executeKey: "2")))
+    // An unconfigured number stays in the text, and x/ is just removed (egg).
+    check("execute unknown number", xEngine.run("version 3x/"),
+          .edit(MLHOutcome(text: "version 3", selections: [], henkanBegin: 9, convertToKanji: false)))
+    let settings = ExecuteSettings.parse(Data(#"{"2": {"instructions": "To English."}, "9": {"command": "~/bin/f"}, "bad": 1}"#.utf8))
+    check("settings keys", settings.keys.sorted(), ["2", "9"])
+    check("settings backend", [settings["2"]?.resolvedBackend, settings["9"]?.resolvedBackend], ["openai", "command"])
+    check("settings apply", settings["2"]?.apply(to: OpenAI.Config(defaults: UserDefaults(suiteName: "mlh-tests-none")!)).instructions, "To English.")
 
     // OpenAI request / stream parsing.
     var config = OpenAI.Config(defaults: UserDefaults(suiteName: "mlh-tests-none")!)

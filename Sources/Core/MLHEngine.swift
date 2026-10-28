@@ -38,17 +38,20 @@ public struct MLHOutcome: Equatable {
     /// When true, `text[henkanBegin...]` goes through kanji conversion
     /// (`egg-convert-region henkan-begin (point)`).
     public let convertToKanji: Bool
-    /// When set, `text[executeBegin...]` is handed to the external command
+    /// When set, `text[executeBegin...]` is handed to the execute backend
     /// (`x`) and replaced with its output.
     public let executeBegin: Int?
+    /// The number typed before `x` (`2x/` -> "2"), selecting the settings.
+    public let executeKey: String?
 
     public init(text: String, selections: [MLHSelection], henkanBegin: Int, convertToKanji: Bool,
-                executeBegin: Int? = nil) {
+                executeBegin: Int? = nil, executeKey: String? = nil) {
         self.text = text
         self.selections = selections
         self.henkanBegin = henkanBegin
         self.convertToKanji = convertToKanji
         self.executeBegin = executeBegin
+        self.executeKey = executeKey
     }
 
     /// Re-renders `text` with the given candidate index for each selection.
@@ -78,9 +81,9 @@ public enum MLHResult: Equatable {
 
 public final class MLHEngine {
     public var userDictionary: UserDictionary
-    /// Whether `x` hands the line to an execute backend. Asked only when
-    /// an `x/` is converted.
-    public var executeAvailable: () -> Bool = { false }
+    /// Whether `x` (with the number typed before it, if any) hands the line
+    /// to an execute backend. Asked only when an `x/` is converted.
+    public var executeAvailable: (String?) -> Bool = { _ in false }
 
     public init(userDictionary: UserDictionary = UserDictionary()) {
         self.userDictionary = userDictionary
@@ -106,7 +109,7 @@ public final class MLHEngine {
         let convert = !state.inhibitHenkan && henkanBegin != state.point
         return .edit(MLHOutcome(text: String(state.buf), selections: selections,
                                 henkanBegin: henkanBegin, convertToKanji: convert,
-                                executeBegin: state.executeBegin))
+                                executeBegin: state.executeBegin, executeKey: state.executeKey))
     }
 }
 
@@ -139,12 +142,13 @@ final class MLHState {
     var inhibitHenkan = true
     var selections: [(start: Marker, end: Marker, candidates: [String])] = []
     let userDictionary: UserDictionary
-    let executeAvailable: () -> Bool
+    let executeAvailable: (String?) -> Bool
     var executeBegin: Int?
+    var executeKey: String?
     /// Nesting level of mlh-backward-henkan (1 for the word before the cursor).
     var depth = 0
 
-    init(text: String, userDictionary: UserDictionary, executeAvailable: @escaping () -> Bool = { false }) {
+    init(text: String, userDictionary: UserDictionary, executeAvailable: @escaping (String?) -> Bool = { _ in false }) {
         buf = Array(text)
         point = buf.count
         self.userDictionary = userDictionary
@@ -362,15 +366,22 @@ final class MLHState {
     }
 
     // mlh-execute. The execute backend plays mlh-userdef-function: it gets
-    // the whole line before "x/" (only for the word before the cursor).
+    // the whole line before "Nx/" (only for the word before the cursor; the
+    // optional number N picks the settings).
     func mlhExecute(_ f: Frame) throws {
         forwardChar(-1)
-        if depth == 1 && executeAvailable() {
-            point = f.endMarker.pos
-            backwardDeleteChar(2)
-            executeBegin = 0
-            henkanBegin = 0
-            return
+        if depth == 1 {
+            let x = point
+            skipCharsBackward(Self.digit)
+            let key = point < x ? substring(point, x) : nil
+            if executeAvailable(key) {
+                deleteRegion(point, f.endMarker.pos)
+                executeBegin = 0
+                executeKey = key
+                henkanBegin = 0
+                return
+            }
+            point = x
         }
         let beg = try recurseAndDropScheme(f)
         if henkanBegin == nil { henkanBegin = beg }

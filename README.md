@@ -130,7 +130,7 @@ and/orq/     + Space → and/or      （q/ を取り除くだけ。リテラル�
 | `d` | user Definition | ユーザー辞書で置換（候補が複数あれば選択モード。未登録なら `?udef?`） |
 | `q` | Quit | ここで遡りを止める（`q/` を取り除く） |
 | `X` | eXit | ここで遡りを止め、空白を 1 つ入れる |
-| `x` | eXecute | 行を外部コマンドか OpenAI に渡し、その結果で置き換える（下記参照）。どちらも設定がなければ `x/` を取り除くだけ |
+| `x` | eXecute | 行を外部コマンドか OpenAI に渡し、その結果で置き換える（`2x/` のように番号で設定を切り替え。下記参照）。設定がなければ `x/` を取り除くだけ |
 | その他 | | 変換せず、普通にスペースを入力 |
 
 Emacs 固有の `L`（Lisp 式の評価）と、egg で未定義の `g`（ギリシャ文字）は対応していません。
@@ -168,6 +168,25 @@ defaults write com.github.kazu.inputmethod.mlh ExecuteBackend openai    # 組み
 
 設定しない場合は、外部コマンドのファイルがあればそれを、なければ OpenAI の API キーがあれば OpenAI を使います。
 どちらもなければ `x/` を取り除くだけです（egg と同じ）。
+
+#### 番号付き（`2x/` など）
+
+`x` の前に数字を付けると、`~/Library/Application Support/MLH/execute.json` のその番号の設定を使います
+（`3w/` などと同じく、数字は方式文字の前に置きます）。番号も用途も自由に決められます。
+
+```json
+{
+  "2": { "instructions": "Translate the user text into natural English. Reply with only the translation." },
+  "5": { "model": "qwen/qwen3.5-35b-a3b", "reasoningEffort": "low" },
+  "9": { "command": "~/bin/mlh-filter" }
+}
+```
+
+- 使える項目: `instructions` `model` `baseURL` `reasoningEffort`（OpenAI）、`command`（外部コマンドのパス）、
+  `backend`（`openai` / `command`）。書かなかった項目は `defaults` の設定（`OpenAIModel` など）が使われます。
+- `command` があれば外部コマンド、なければ OpenAI を使います。
+- ファイルは変換のたびに読み直すので、編集後に再起動は不要です。
+- `execute.json` にない番号は変換せず、数字は文字のまま残ります（`version 3x/` → `version 3`）。
 
 #### 外部コマンド
 

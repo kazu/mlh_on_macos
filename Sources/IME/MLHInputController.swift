@@ -16,7 +16,7 @@ final class MLHShared {
 
     let engine: MLHEngine = {
         let engine = MLHEngine()
-        engine.executeAvailable = { Execute.backend != nil }
+        engine.executeAvailable = { Execute.isAvailable($0) }
         return engine
     }()
     private var dictionaryLoaded = false
@@ -368,7 +368,8 @@ final class MLHInputController: IMKInputController {
         var markStart: Int? = outcome.selections.first?.range.lowerBound
         if kanji { markStart = min(markStart ?? Int.max, outcome.henkanBegin) }
         let executeTask = outcome.executeBegin.flatMap {
-            Execute.makeTask(source: TextContext.slice(newText, $0), clientBundleID: client.bundleIdentifier())
+            Execute.makeTask(source: TextContext.slice(newText, $0), key: outcome.executeKey,
+                             clientBundleID: client.bundleIdentifier())
         }
         if executeTask != nil, let begin = outcome.executeBegin { markStart = min(markStart ?? Int.max, begin) }
 

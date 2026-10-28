@@ -17,7 +17,8 @@ protocol ExecuteTask: AnyObject {
     func cancel()
 }
 
-/// Chooses the backend for `x`:
+/// Chooses the backend for `x`. `Nx/` (a number before x) uses entry N of
+/// execute.json (see `ExecuteSettings`); plain `x/`:
 ///   defaults write com.github.kazu.inputmethod.mlh ExecuteBackend command|openai
 /// Without the setting: the command if ~/Library/Application Support/MLH/execute
 /// exists, else OpenAI if its API key is in the keychain, else nothing (`x/`
@@ -34,10 +35,23 @@ enum Execute {
         return nil
     }
 
-    static func makeTask(source: String, clientBundleID: String?) -> ExecuteTask? {
+    static func isAvailable(_ key: String?) -> Bool {
+        guard let key else { return backend != nil }
+        return ExecuteSettings.load()[key] != nil
+    }
+
+    static func makeTask(source: String, key: String?, clientBundleID: String?) -> ExecuteTask? {
+        if let key {
+            guard let settings = ExecuteSettings.load()[key] else { return nil }
+            if settings.resolvedBackend == "command" {
+                let url = settings.command.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+                return CommandTask(source: source, url: url ?? CommandTask.url, clientBundleID: clientBundleID)
+            }
+            return OpenAITask(source: source, config: settings.apply(to: OpenAI.Config()))
+        }
         switch backend {
-        case .command: return CommandTask(source: source, clientBundleID: clientBundleID)
-        case .openai: return OpenAITask(source: source)
+        case .command: return CommandTask(source: source, url: CommandTask.url, clientBundleID: clientBundleID)
+        case .openai: return OpenAITask(source: source, config: OpenAI.Config())
         case nil: return nil
         }
     }
@@ -94,9 +108,9 @@ final class CommandTask: ExecuteTaskBase, ExecuteTask {
 
     private let process = Process()
 
-    init(source: String, clientBundleID: String?) {
+    init(source: String, url: URL, clientBundleID: String?) {
         super.init(source: source)
-        process.executableURL = Self.url
+        process.executableURL = url
         var env = ProcessInfo.processInfo.environment
         env["MLH_CLIENT_BUNDLE_ID"] = clientBundleID ?? ""
         process.environment = env
@@ -165,9 +179,8 @@ final class OpenAITask: ExecuteTaskBase, ExecuteTask, @unchecked Sendable {
 
     private var task: Task<Void, Never>?
 
-    override init(source: String) {
+    init(source: String, config: OpenAI.Config) {
         super.init(source: source)
-        let config = OpenAI.Config()
         task = Task.detached(priority: .userInitiated) { [weak self] in
             let key = Self.apiKey()
             if key == nil {
