@@ -22,17 +22,13 @@ public final class KanjiConversion {
     public private(set) var current: Int
 
     private let transliterator: Transliterator
-    /// The text before the conversion (on the same line), handed to
-    /// converters that use it as context.
-    public let context: String
 
-    public init(source: String, transliterator: Transliterator, context: String = "") {
+    public init(source: String, transliterator: Transliterator) {
         self.source = source
         self.transliterator = transliterator
-        self.context = context
         self.current = 0
         self.segments = []
-        self.segments = query(source, fixed: false, context: context)
+        self.segments = query(source, fixed: false)
     }
 
     // MARK: - Accessors
@@ -110,9 +106,8 @@ public final class KanjiConversion {
     }
 
     private func resize(to newReading: String, rest: String) {
-        let before = context + segments[..<current].map { $0.current }.joined()
-        let head = query(newReading, fixed: true, context: before)[0]
-        let tail = rest.isEmpty ? [] : query(rest, fixed: false, context: before + head.current)
+        let head = query(newReading, fixed: true)[0]
+        let tail = rest.isEmpty ? [] : query(rest, fixed: false)
         segments = Array(segments[..<current]) + [head] + tail
     }
 
@@ -120,10 +115,9 @@ public final class KanjiConversion {
     /// segment (by appending the "," boundary marker) and only the first
     /// returned segment is used. Falls back to a plain kana segment when the
     /// transliterator fails or returns readings that don't match.
-    private func query(_ reading: String, fixed: Bool, context: String) -> [ConversionSegment] {
+    private func query(_ reading: String, fixed: Bool) -> [ConversionSegment] {
         let fallback = [Self.makeSegment(reading: reading, candidates: [])]
-        guard let result = transliterator.convert(fixed ? reading + "," : reading,
-                                                  context: context.isEmpty ? nil : context),
+        guard let result = transliterator.convert(fixed ? reading + "," : reading),
               !result.isEmpty else { return fallback }
         let used = fixed ? Array(result.prefix(1)) : result
         guard used.map({ $0.reading }).joined() == reading,
