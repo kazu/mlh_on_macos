@@ -17,6 +17,9 @@ egg-mlh.el (Modeless Conversion Facility) として取り込まれました。
   日本語のほかにも中国語（ピンイン・注音）、韓国語（ハングル）、タイ語、ギリシャ文字、アイヌ語のカナなど、
   多くの言語・文字を扱えました。それ以外の言語・文字への対応はこれからです。
 
+Linux の Wayland 環境では、IBus を使って同じ操作で入力できます。ビルドと設定は
+[Linux 版の手順](linux/README.md)を参照してください。
+
 ## 必要環境
 
 - macOS 13 以降（開発・確認は macOS 15 / Apple Silicon）

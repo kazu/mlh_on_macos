@@ -1,5 +1,6 @@
-import Cocoa
 import MLHCore
+#if canImport(Cocoa)
+import Cocoa
 import InputMethodKit
 
 /// The text of the current line that precedes the cursor, as handed to the
@@ -14,6 +15,7 @@ struct DocumentContext {
 
     var isFallback: Bool { location == nil }
 }
+#endif
 
 /// A fallback record of the current line as typed through this IME, used for
 /// clients that cannot report the text before the cursor.
@@ -54,6 +56,7 @@ enum TextContext {
         c == "\n" || c == "\r" || c == "\r\n" || c == "\u{2028}" || c == "\u{2029}"
     }
 
+    #if canImport(Cocoa)
     private static func isLineBreakUnit(_ u: unichar) -> Bool {
         u == 0x0A || u == 0x0D || u == 0x2028 || u == 0x2029
     }
@@ -121,6 +124,7 @@ enum TextContext {
     /// UTF-16 length of the first `n` Characters of `s`.
     static func utf16Offset(_ s: String, _ n: Int) -> Int { prefix(s, n).utf16.count }
 
+    #endif
     /// Number of leading Characters `a` and `b` have in common.
     static func commonPrefixLength(_ a: String, _ b: String) -> Int {
         var n = 0
@@ -129,6 +133,7 @@ enum TextContext {
         return n
     }
 
+    #if canImport(Cocoa)
     // MARK: - Clients that ignore replacementRange
 
     private static var syntheticDeletionCache: [String: Bool] = [:]
@@ -201,4 +206,5 @@ enum TextContext {
             }
         }
     }
+    #endif
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The OpenAI Chat Completions API (or a compatible server), used by the
 /// `x` scheme: the line before "x/" is sent and replaced with the reply.

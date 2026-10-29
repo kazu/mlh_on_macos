@@ -1,0 +1,8 @@
+[package]
+name = "mlh-ibus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+percent-encoding = "2"

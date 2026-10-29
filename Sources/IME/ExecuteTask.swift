@@ -1,9 +1,11 @@
 import Foundation
 import MLHCore
+#if canImport(Security)
 import Security
 import os
 
 private let log = Logger(subsystem: mlhBundleIdentifier, category: "execute")
+#endif
 
 /// What the `x` scheme runs (in place of egg's `mlh-userdef-function`). It
 /// gets the line before "x/" and its result replaces that line.
@@ -29,23 +31,35 @@ enum Execute {
     enum Backend: String { case command, openai }
 
     static var backend: Backend? {
+        #if os(Linux)
+        if let name = ProcessInfo.processInfo.environment["MLH_EXEC_BACKEND"] { return Backend(rawValue: name) }
+        #else
         if let name = UserDefaults.standard.string(forKey: "ExecuteBackend") {
             return Backend(rawValue: name)
         }
+        #endif
         if CommandTask.isAvailable { return .command }
         if OpenAITask.hasAPIKey { return .openai }
         return nil
     }
 
-    static var settings: ExecuteFile { ExecuteFile.load() }
+    static var settings: ExecuteFile {
+        #if os(Linux)
+        let env = ProcessInfo.processInfo.environment
+        let base = env["XDG_CONFIG_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config").path
+        return ExecuteFile.load(from: URL(fileURLWithPath: env["MLH_EXEC_CONFIG"] ?? "\(base)/mlh/execute.json"))
+        #else
+        return ExecuteFile.load()
+        #endif
+    }
 
     static func isAvailable(_ key: String?, app: String?) -> Bool {
-        if Execute.settings.settings(for: key, app: app) != nil { return true }
+        if settings.settings(for: key, app: app) != nil { return true }
         return key == nil && backend != nil
     }
 
     static func makeTask(source: String, key: String?, clientBundleID app: String?) -> ExecuteTask? {
-        let settings = Execute.settings.settings(for: key, app: app)
+        let settings = self.settings.settings(for: key, app: app)
         if key != nil && settings == nil { return nil }
         let s = settings ?? ExecuteSettings()
         // Plain x/ keeps the default backend unless the app entry names one.
@@ -57,7 +71,17 @@ enum Execute {
             let url = s.command.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             return CommandTask(source: source, url: url ?? CommandTask.url, clientBundleID: app)
         }
+        #if os(Linux)
+        let env = ProcessInfo.processInfo.environment
+        var defaults = OpenAI.Config()
+        defaults.baseURL = env["MLH_OPENAI_BASE_URL"] ?? defaults.baseURL
+        defaults.model = env["MLH_OPENAI_MODEL"] ?? defaults.model
+        defaults.instructions = env["MLH_OPENAI_INSTRUCTIONS"] ?? defaults.instructions
+        defaults.reasoningEffort = env["MLH_OPENAI_REASONING_EFFORT"] ?? defaults.reasoningEffort
+        return OpenAITask(source: source, config: s.apply(to: defaults))
+        #else
         return OpenAITask(source: source, config: s.apply(to: OpenAI.Config()))
+        #endif
     }
 }
 
@@ -76,7 +100,11 @@ class ExecuteTaskBase {
         self.source = source
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.timeout) { [weak self] in
             guard let self, !self.finished else { return }
+            #if canImport(Security)
             log.error("execute timed out")
+            #else
+            fputs("execute timed out\n", stderr)
+            #endif
             self.cancel()
             self.finish(nil)
         }
@@ -104,8 +132,14 @@ class ExecuteTaskBase {
 /// newline) is the result. A non-zero exit status is a failure.
 final class CommandTask: ExecuteTaskBase, ExecuteTask {
     static var url: URL {
+        #if os(Linux)
+        let env = ProcessInfo.processInfo.environment
+        let base = env["XDG_CONFIG_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config").path
+        return URL(fileURLWithPath: env["MLH_EXEC_COMMAND"] ?? "\(base)/mlh/execute")
+        #else
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/mlh/execute")
+        #endif
     }
 
     static var isAvailable: Bool { FileManager.default.isExecutableFile(atPath: url.path) }
@@ -137,10 +171,18 @@ final class CommandTask: ExecuteTaskBase, ExecuteTask {
                     while s.hasSuffix("\n") || s.hasSuffix("\r") { s.removeLast() }
                     text = s
                 } else {
+                    #if canImport(Security)
                     log.error("command exited with status \(process.terminationStatus)")
+                    #else
+                    fputs("command exited with status \(process.terminationStatus)\n", stderr)
+                    #endif
                 }
             } catch {
+                #if canImport(Security)
                 log.error("command failed to run: \(error.localizedDescription, privacy: .public)")
+                #else
+                fputs("command failed to run: \(error.localizedDescription)\n", stderr)
+                #endif
             }
             DispatchQueue.main.async { self.finish(text) }
         }
@@ -156,6 +198,7 @@ final class CommandTask: ExecuteTaskBase, ExecuteTask {
 /// generic password with service "mlh-openai" in the login keychain; without
 /// one the request is sent unauthenticated (local servers).
 // State is only touched on the main thread; the request task hops there.
+#if canImport(Security)
 final class OpenAITask: ExecuteTaskBase, ExecuteTask, @unchecked Sendable {
     static let keychainService = "mlh-openai"
 
@@ -236,3 +279,4 @@ final class OpenAITask: ExecuteTaskBase, ExecuteTask, @unchecked Sendable {
         task?.cancel()
     }
 }
+#endif

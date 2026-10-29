@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Converts a kana reading into kanji candidates, segment by segment.
 public protocol Transliterator {

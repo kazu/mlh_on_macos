@@ -1,0 +1,500 @@
+use std::collections::HashMap;
+use zbus::{
+    blocking::{Proxy, connection::Builder},
+    zvariant::{OwnedObjectPath, OwnedValue, Value},
+};
+
+#[test]
+#[ignore = "requires the isolated IBus daemon from isolated-ibus.sh"]
+fn converts_through_ibus_input_context() {
+    let address = std::env::var("IBUS_TEST_ADDRESS").unwrap();
+    let connection = Builder::address(mlh_ibus::ibus_address(&address).unwrap())
+        .unwrap()
+        .build()
+        .unwrap();
+    let bus = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus",
+        "/org/freedesktop/IBus",
+        "org.freedesktop.IBus",
+    )
+    .unwrap();
+    let path: OwnedObjectPath = bus
+        .call("CreateInputContext", &("gtk4-im:mlh-test",))
+        .unwrap();
+    let context = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus",
+        path,
+        "org.freedesktop.IBus.InputContext",
+    )
+    .unwrap();
+    context
+        .call::<_, _, ()>("SetCapabilities", &(0x2d_u32,))
+        .unwrap();
+    context.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let mut deletions = context.receive_signal("DeleteSurroundingText").unwrap();
+    let mut commits = context.receive_signal("CommitText").unwrap();
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "nihongof/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 9_u32, 9_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    assert_eq!(
+        deletions
+            .next()
+            .unwrap()
+            .body()
+            .deserialize::<(i32, u32)>()
+            .unwrap(),
+        (-9, 9)
+    );
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("にほんご"));
+
+    let mut preedits = context.receive_signal("UpdatePreeditText").unwrap();
+    let mut lookups = context.receive_signal("UpdateLookupTable").unwrap();
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "nihongo/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    let preedit = preedits.next().unwrap();
+    let (text, _, visible): (OwnedValue, u32, bool) = preedit.body().deserialize().unwrap();
+    assert!(visible);
+    let Value::Structure(text) = Value::try_from(&text).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_ne!(text.fields()[2], Value::new(""));
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    let lookup = lookups.next().unwrap();
+    let (_, visible): (OwnedValue, bool) = lookup.body().deserialize().unwrap();
+    assert!(visible);
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0xff0d_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    preedits.next().unwrap();
+    let cleared = preedits.next().unwrap();
+    let (_, _, visible): (OwnedValue, u32, bool) = cleared.body().deserialize().unwrap();
+    assert!(
+        !visible,
+        "preedit must be cleared before committing conversion"
+    );
+    commits.next().unwrap();
+    commits.next().unwrap();
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "prefix imed/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 12_u32, 12_u32))
+        .unwrap();
+    let mut selection_deletions = context.receive_signal("DeleteSurroundingText").unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    assert_eq!(
+        selection_deletions
+            .next()
+            .unwrap()
+            .body()
+            .deserialize::<(i32, u32)>()
+            .unwrap(),
+        (-5, 5)
+    );
+    commits.next().unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x2f_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("input method"));
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hello1x/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("HELLO"));
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hello2x/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    let mut cancelled_preedit = context.receive_signal("UpdatePreeditText").unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0xff1b_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    let message = cancelled_preedit.next().unwrap();
+    let (_, _, visible): (OwnedValue, u32, bool) = message.body().deserialize().unwrap();
+    assert!(!visible);
+
+    let mut progress = context.receive_signal("UpdatePreeditText").unwrap();
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hello3x/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    let partial = progress.next().unwrap();
+    let (value, _, _): (OwnedValue, u32, bool) = partial.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("AB"));
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("ABC"));
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hello6x/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("mlh-test"));
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hellox/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 7_u32, 7_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("ABC"));
+
+    let mut queued = context.receive_signal("ForwardKeyEvent").unwrap();
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hello4x/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    for state in [0_u32, 1 << 30] {
+        let handled: bool = context
+            .call("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
+            .unwrap();
+        assert!(handled);
+    }
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("HELLO"));
+    let down: (u32, u32, u32) = queued.next().unwrap().body().deserialize().unwrap();
+    let up: (u32, u32, u32) = queued.next().unwrap().body().deserialize().unwrap();
+    assert_eq!(down.0, 0x71);
+    assert_eq!(up.0, 0x71);
+    assert_ne!(up.2 & (1 << 30), 0);
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let mut failure_preedit = context.receive_signal("UpdatePreeditText").unwrap();
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "hello5x/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    let message = failure_preedit.next().unwrap();
+    let (_, _, visible): (OwnedValue, u32, bool) = message.body().deserialize().unwrap();
+    assert!(!visible);
+
+    let attributes = Value::new((
+        "IBusAttrList",
+        HashMap::<String, OwnedValue>::new(),
+        Vec::<OwnedValue>::new(),
+    ));
+    let text = Value::new((
+        "IBusText",
+        HashMap::<String, OwnedValue>::new(),
+        "nihongo/",
+        attributes,
+    ));
+    context
+        .call::<_, _, ()>("SetSurroundingText", &(text, 8_u32, 8_u32))
+        .unwrap();
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    commits.next().unwrap();
+    context.call::<_, _, ()>("Reset", &()).unwrap();
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("日本語"));
+
+    context.call::<_, _, ()>("FocusOut", &()).unwrap();
+    context
+        .call::<_, _, ()>("SetCapabilities", &(0x0d_u32,))
+        .unwrap();
+    context.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let mut forwarded = context.receive_signal("ForwardKeyEvent").unwrap();
+    for key in b"nihongof/" {
+        let handled: bool = context
+            .call("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+            .unwrap();
+        assert!(!handled);
+    }
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled, "conversion should work without surrounding text");
+    for _ in 0..9 {
+        let down: (u32, u32, u32) = forwarded.next().unwrap().body().deserialize().unwrap();
+        let up: (u32, u32, u32) = forwarded.next().unwrap().body().deserialize().unwrap();
+        assert_eq!(down.0, 0xff08);
+        assert_eq!(up.0, 0xff08);
+        assert_eq!((down.1, up.1), (14, 14));
+        assert_eq!(down.2 & (1 << 30), 0);
+        assert_ne!(up.2 & (1 << 30), 0);
+    }
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("にほんご"));
+    for key in b" nihongof/" {
+        let handled: bool = context
+            .call("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+            .unwrap();
+        assert!(!handled);
+    }
+    let handled: bool = context
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    for _ in 0..9 {
+        let down: (u32, u32, u32) = forwarded.next().unwrap().body().deserialize().unwrap();
+        let up: (u32, u32, u32) = forwarded.next().unwrap().body().deserialize().unwrap();
+        assert_eq!((down.0, up.0), (0xff08, 0xff08));
+    }
+    let message = commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("にほんご"));
+
+    let source_path: OwnedObjectPath = bus
+        .call("CreateInputContext", &("gtk4-im:source",))
+        .unwrap();
+    let source = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus",
+        source_path,
+        "org.freedesktop.IBus.InputContext",
+    )
+    .unwrap();
+    let mut required = source.receive_signal("RequireSurroundingText").unwrap();
+    let mut source_commits = source.receive_signal("CommitText").unwrap();
+    let mut source_preedits = source.receive_signal("UpdatePreeditText").unwrap();
+    source
+        .call::<_, _, ()>("SetCapabilities", &(0x2d_u32,))
+        .unwrap();
+    source.call::<_, _, ()>("FocusIn", &()).unwrap();
+    required.next().unwrap();
+    for key in b"nihongo/" {
+        let handled: bool = source
+            .call("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+            .unwrap();
+        assert!(!handled);
+    }
+    let handled: bool = source
+        .call("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+        .unwrap();
+    assert!(handled);
+    source_commits.next().unwrap();
+    loop {
+        let message = source_preedits.next().unwrap();
+        let (_, _, visible): (OwnedValue, u32, bool) = message.body().deserialize().unwrap();
+        if visible {
+            break;
+        }
+    }
+    let other_path: OwnedObjectPath = bus.call("CreateInputContext", &("gtk4-im:other",)).unwrap();
+    let other = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus",
+        other_path,
+        "org.freedesktop.IBus.InputContext",
+    )
+    .unwrap();
+    other
+        .call::<_, _, ()>("SetCapabilities", &(0x2d_u32,))
+        .unwrap();
+    source.call::<_, _, ()>("FocusOut", &()).unwrap();
+    other.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let message = source_commits.next().unwrap();
+    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("日本語"));
+}

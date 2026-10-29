@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+app_id=org.mlh.Terminal
+if ! gdbus wait --session --timeout=1 "$app_id" >/dev/null 2>&1; then
+    if [ -x /usr/libexec/gnome-terminal-server ]; then
+        server=/usr/libexec/gnome-terminal-server
+    else
+        server=/usr/lib/gnome-terminal/gnome-terminal-server
+    fi
+    GTK_IM_MODULE=ibus "$server" --app-id "$app_id" &
+    gdbus wait --session --timeout=10 "$app_id"
+fi
+exec gnome-terminal --app-id "$app_id" "$@"

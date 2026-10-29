@@ -5,6 +5,9 @@
 import PackageDescription
 
 let swift5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
+#if os(Linux)
+let bridgeTarget: Target = .target(name: "MLHBridge", dependencies: ["MLHCore"], path: "Sources", exclude: ["Core", "IME/CandidatePanel.swift", "IME/MLHInputController.swift", "IME/main.swift"], sources: ["LinuxBridge", "IME/TextContext.swift", "IME/ExecuteTask.swift"], swiftSettings: swift5)
+#endif
 
 let package = Package(
     name: "mlh",
@@ -45,3 +48,9 @@ let package = Package(
         ),
     ]
 )
+
+#if os(Linux)
+package.targets.removeAll { $0.name == "mlh" }
+package.targets.append(bridgeTarget)
+package.products.append(.library(name: "MLHBridge", type: .dynamic, targets: ["MLHBridge"]))
+#endif
