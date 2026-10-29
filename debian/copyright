@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: mlh
+Source: https://github.com/kazu/mlh_on_macos
+
+Files: *
+Copyright: 2025-2026 Kazuhisa TAKEI and contributors
+License: GPL-2+
+ The full license is available in /usr/share/common-licenses/GPL-2.
+Comment: The binary package also includes the azooKey conversion library
+ (MIT) and dictionary (Apache-2.0). Their licenses are installed in
+ /usr/share/doc/mlh-ibus/.

@@ -1,4 +1,8 @@
-# mlh (modeless Japanese input, after Emacs egg-mlh.el) for macOS.
+# mlh (modeless Japanese input, after Emacs egg-mlh.el).
+ifeq ($(shell uname -s),Linux)
+include linux/Makefile
+else
+
 # Requires only the Command Line Tools (swift, codesign). The Swift packages
 # (Package.swift) are fetched by SwiftPM on the first build.
 
@@ -99,3 +103,5 @@ clean:
 
 signing-identity:
 	scripts/make-signing-identity.sh "$(SIGN_NAME)"
+
+endif

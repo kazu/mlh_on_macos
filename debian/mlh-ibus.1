@@ -1,0 +1,20 @@
+.TH MLH-IBUS 1 "2026-10-29" "mlh 0.1.0" "User Commands"
+.SH NAME
+mlh-ibus \- modeless Japanese input method for IBus
+.SH DESCRIPTION
+The IBus daemon starts mlh-ibus when the mlh input source is selected.
+Type text followed by a slash and a space to begin conversion. Use space to
+select a conversion candidate and Enter to commit it.
+.PP
+User dictionaries and command settings are stored in the mlh directory under
+XDG_CONFIG_HOME, or ~/.config/mlh if XDG_CONFIG_HOME is not set.
+.SH ENVIRONMENT
+.TP
+.B MLH_DICTIONARY
+Path to an azooKey dictionary, overriding the installed dictionary.
+.TP
+.B MLH_TRANSLITERATOR
+Set to google to use the Google transliteration API instead of azooKey.
+.SH SEE ALSO
+.BR ibus (1),
+.BR mlh-gnome-terminal (1)

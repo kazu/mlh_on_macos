@@ -1,0 +1,13 @@
+.TH MLH-GNOME-TERMINAL 1 "2026-10-29" "mlh 0.1.0" "User Commands"
+.SH NAME
+mlh-gnome-terminal \- launch GNOME Terminal with the GTK IBus module
+.SH SYNOPSIS
+.B mlh-gnome-terminal
+.RI [ options ]
+.SH DESCRIPTION
+Starts a separate GNOME Terminal process with GTK_IM_MODULE=ibus, or opens
+a window in the existing separate process. This can help applications without
+surrounding-text support on GNOME Wayland. Options are passed to gnome-terminal.
+.SH SEE ALSO
+.BR mlh-ibus (1),
+.BR gnome-terminal (1)

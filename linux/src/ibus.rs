@@ -189,21 +189,28 @@ fn dictionary_path() -> Option<String> {
     if std::env::var("MLH_TRANSLITERATOR").as_deref() == Ok("google") {
         return Some(String::new());
     }
-    let path = std::env::var_os("MLH_DICTIONARY")
+    if let Some(path) = std::env::var_os("MLH_DICTIONARY") {
+        let path = std::path::PathBuf::from(path);
+        return path
+            .is_dir()
+            .then(|| path.into_os_string().into_string().ok())?;
+    }
+    let installed = std::env::current_exe()
+        .ok()
+        .and_then(|path| Some(path.parent()?.parent()?.join("share/mlh/Dictionary")));
+    let user_data = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
         .or_else(|| {
-            let base = std::env::var_os("XDG_DATA_HOME")
-                .map(std::path::PathBuf::from)
-                .or_else(|| {
-                    std::env::var_os("HOME")
-                        .map(|home| std::path::PathBuf::from(home).join(".local/share"))
-                })?;
-            Some(base.join("mlh/Dictionary"))
-        })?;
-    if !path.is_dir() {
-        return None;
-    }
-    path.into_os_string().into_string().ok()
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
+        })
+        .map(|path| path.join("mlh/Dictionary"));
+    installed
+        .into_iter()
+        .chain(user_data)
+        .find(|path| path.is_dir())?
+        .into_os_string()
+        .into_string()
+        .ok()
 }
 
 async fn show_selection(emitter: &SignalEmitter<'_>, selection: &Selection) -> zbus::Result<()> {

@@ -1,0 +1,17 @@
+Source: mlh-ibus
+Section: utils
+Priority: optional
+Maintainer: Kazuhisa TAKEI <x@mmap.dev>
+Build-Depends: debhelper-compat (= 13), cargo (>= 1.89) | rustup, clang, gcc, git, libobjc-15-dev, swiftlang (>= 6.1), dbus-daemon
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Homepage: https://github.com/kazu/mlh_on_macos
+
+Package: mlh-ibus
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ibus, libswiftlang (>= 6.1.3)
+Recommends: ibus-gtk3, ibus-gtk4
+Description: modeless Japanese input method for IBus
+ mlh converts text immediately before the cursor using slash commands.
+ It uses the azooKey dictionary for kana-kanji conversion and supports
+ Wayland applications through IBus.

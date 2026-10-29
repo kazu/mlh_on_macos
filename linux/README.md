@@ -2,41 +2,25 @@
 
 IBus を使い、Wayland 上のアプリで macOS 版と同じ変換操作を使えます。Rust 製の IBus エンジンから Swift 製の変換処理を呼び出します。
 
-## 必要環境
+## Debian パッケージ
 
-Swift 6.1 以上、Rust、Cargo、Clang、GCC、Git、IBus が必要です。Ubuntu 26.04 では `swiftlang`、`cargo`、`clang`、`gcc`、`libobjc-15-dev`、`git`、`ibus` を使います。GTK アプリでは `ibus-gtk4` または `ibus-gtk3` も必要です。
+Ubuntu 26.04 でビルド・動作確認しています。パッケージのインストール時には IBus と Swift の実行時ライブラリ `libswiftlang` が必要です。ビルドには Rust 1.89 以上と Cargo、次のパッケージを使います。Rust は既存の `rustup` またはディストリビューションの `cargo` を使えます。
 
-## ビルドと配置
-
-リポジトリのルートから実行します。ビルド先と配置用ディレクトリにはローカルディスクを指定してください。配置用ディレクトリが既にある場合は、削除せず別の場所を指定してください。
-
-Bash:
-
-```bash
-MLH_WORK_DIR="$HOME/.cache/mlh-wayland"
-export CARGO_TARGET_DIR="$MLH_WORK_DIR/tmp"
-export MLH_STAGE_DIR="$MLH_WORK_DIR/stage"
-sh linux/build.sh
-sh linux/install.sh
+```sh
+sudo apt install debhelper clang gcc git libobjc-15-dev swiftlang dbus-daemon
+make deb
+sudo apt install ../mlh-ibus_0.1.0_amd64.deb
 ```
 
-Nushell:
+`make deb` はリポジトリのルートで実行します。Swift と Cargo の依存ライブラリは初回にネットワークから取得します。`.deb` はリポジトリの親ディレクトリに生成され、アーキテクチャ部分はビルドしたマシンによって変わります。`libswiftlang` と互換性のある同じディストリビューション向けにビルドしてください。
 
-```nushell
-let work = ($nu.home-path | path join '.cache/mlh-wayland')
-$env.CARGO_TARGET_DIR = ($work | path join 'tmp')
-$env.MLH_STAGE_DIR = ($work | path join 'stage')
-sh linux/build.sh
-sh linux/install.sh
-```
+配置後、入力中の文章を確定してから `ibus restart` を実行するか、ログインし直します。その後、デスクトップの入力ソースに `mlh` を追加します。既に動いているアプリでは、新しく開いたウィンドウでまず試してください。
 
-既定の配置先は `~/.local/bin`、`~/.local/lib/mlh`、`~/.local/share/mlh` です。`MLH_PREFIX` で実行ファイルとライブラリの配置先を、`XDG_DATA_HOME` で辞書と IBus のコンポーネント定義の配置先を変更できます。
-
-IBus にコンポーネントを見つけさせるため、セッション起動時の `IBUS_COMPONENT_PATH` に、システムの IBus コンポーネントディレクトリと `~/.local/share/ibus/component` の両方を含めます。Ubuntu のシステム側は `/usr/share/ibus/component` です。既に別のディレクトリを指定している場合は、それも残してください。設定後、新しいデスクトップセッションで入力ソースに `mlh` を追加します。GTK の IBus モジュールを使う場合は、アプリの起動時に `GTK_IM_MODULE=ibus` を設定します。
+開発時は `make build` でビルドし、`make test` でテストできます。ビルド用データは既定で `~/.cache/mlh-wayland` に置き、`MLH_WORK_DIR`、`SWIFT_BUILD_DIR`、`CARGO_TARGET_DIR` で変更できます。`make install PREFIX=/usr DESTDIR=/一時ディレクトリ` はパッケージング用の配置です。
 
 GNOME 50.1 の Wayland セッションでは、周辺文字列を提供しないアプリで、GNOME 側が mlh の送る削除キーを処理できず、変換前のローマ字が残ることがあります。入力先がターミナルと通知される場合は、端末に削除文字を送って対応します。それ以外の GTK アプリは、新しく起動する際に `GTK_IM_MODULE=ibus` を設定すると、GTK が IBus に直接接続する経路で回避できます。既に動いているアプリにはこの環境変数は反映されません。
 
-GNOME Terminal では `~/.local/bin/mlh-gnome-terminal` を実行すると、既存のターミナルとは別のプロセスで、IBus に直接接続する窓を開けます。
+GNOME Terminal では `mlh-gnome-terminal` を実行すると、既存のターミナルとは別のプロセスで、IBus に直接接続する窓を開けます。
 
 ## 設定
 

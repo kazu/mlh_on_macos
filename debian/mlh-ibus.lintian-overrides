@@ -1,0 +1,4 @@
+# Ubuntu's libswiftlang installs its runtime libraries in this directory.
+mlh-ibus: custom-library-search-path RUNPATH /usr/libexec/swift/lib/swift/linux [usr/lib/mlh/libMLHBridge.so]
+# These Unicode filenames are required by the azooKey dictionary.
+mlh-ibus: national-encoding [usr/share/mlh/Dictionary/louds/*]
