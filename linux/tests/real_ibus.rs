@@ -516,4 +516,33 @@ fn converts_through_ibus_input_context() {
         panic!("expected IBusText")
     };
     assert_eq!(value.fields()[2], Value::new("日本語"));
+
+    let factory = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus.Mlh",
+        "/org/freedesktop/IBus/Factory",
+        "org.freedesktop.IBus.Factory",
+    )
+    .unwrap();
+    let engine_path: OwnedObjectPath = factory.call("CreateEngine", &("mlh",)).unwrap();
+    let service = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus.Mlh",
+        engine_path.clone(),
+        "org.freedesktop.IBus.Service",
+    )
+    .unwrap();
+    service.call::<_, _, ()>("Destroy", &()).unwrap();
+    let engine = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus.Mlh",
+        engine_path,
+        "org.freedesktop.IBus.Engine",
+    )
+    .unwrap();
+    assert!(
+        engine
+            .call::<_, _, bool>("ProcessKeyEvent", &(0x71_u32, 24_u32, 0_u32))
+            .is_err()
+    );
 }

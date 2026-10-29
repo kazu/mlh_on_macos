@@ -37,7 +37,34 @@ impl Factory {
             .at(path.clone(), InputMethod::default())
             .await
             .map_err(|err| fdo::Error::Failed(err.to_string()))?;
+        connection
+            .object_server()
+            .at(path.clone(), EngineService)
+            .await
+            .map_err(|err| fdo::Error::Failed(err.to_string()))?;
         Ok(path)
+    }
+}
+
+struct EngineService;
+
+#[zbus::interface(name = "org.freedesktop.IBus.Service")]
+impl EngineService {
+    async fn destroy(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        let server = connection.object_server();
+        server
+            .remove::<InputMethod, _>(emitter.path())
+            .await
+            .map_err(|e| fdo::Error::Failed(e.to_string()))?;
+        server
+            .remove::<EngineService, _>(emitter.path())
+            .await
+            .map_err(|e| fdo::Error::Failed(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -51,6 +78,12 @@ struct InputMethod {
     executions: Arc<Mutex<Executions>>,
     app: Mutex<Option<String>>,
     content_purpose: Mutex<u32>,
+}
+
+impl Drop for InputMethod {
+    fn drop(&mut self) {
+        self.cancel_execution();
+    }
 }
 
 #[derive(Default)]
