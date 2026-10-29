@@ -320,8 +320,34 @@ defaults delete com.github.kazu.inputmethod.mlh KanjiBackend                 # �
 ```
 
 設定は次の変換から使われます（再起動は不要です）。azooKey の辞書（約 35MB）は
-`mlh.app/Contents/Resources/Dictionary` に入っています。ニューラル変換（Zenzai）は使っていません。
+`mlh.app/Contents/Resources/Dictionary` に入っています。
 文節は azooKey の品詞の情報から、自立語ごとに区切ります。
+
+#### 文脈を使った変換（Zenzai）
+
+azooKey のニューラル変換 Zenzai を使うと、変換する位置より前の文字列（同じ行の、すでに入力した部分）を
+文脈として使って候補を選びます。mlh は `kisha/` のように短く区切って変換することが多いので、
+文脈があると精度が大きく上がります（例: 「駅から」のあとの `kisha/` は「汽車」、「新聞社の」のあとでは「記者」）。
+
+Zenzai は zenz という小さな言語モデルを llama.cpp で動かします。モデル（約 72MB）は同梱していないので、
+一度ダウンロードしてください。モデルがあれば Zenzai を使い、なければ通常の azooKey で変換します。
+
+```sh
+make zenz-model   # ~/Library/Application Support/mlh/zenz.gguf にダウンロード
+```
+
+| 設定 | 既定 | 意味 |
+|---|---|---|
+| `ZenzaiModel` | `~/Library/Application Support/mlh/zenz.gguf` | モデルのパス |
+| `ZenzaiContextLength` | 40 | 文脈として渡す文字数（0 で文脈なし） |
+| `ZenzaiInferenceLimit` | 10 | 候補を評価し直す回数の上限 |
+
+- ビルドは既定で CPU 版です。`MLH_ZENZAI=gpu make build` で GPU（Metal）版、`MLH_ZENZAI=off make build` で
+  Zenzai なしになります。Zenzai を使うビルドは macOS 13.3 以降が必要です。
+- 参考（Intel Mac mini、CPU 版、17 例）: 文脈 40 文字で全問正解、1 回の変換は平均 250ms 前後。
+  Zenzai なしでは 7/17、1 回 10ms 前後でした。
+- mlh の起動時に辞書とモデルを読み込みます（Intel Mac mini で約 0.5 秒）。
+
 
 ## ユーザー辞書
 
@@ -401,6 +427,10 @@ date	2026年	令和8年
 
 - [AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter) — MIT License、Copyright (c) 2023 Miwa / Ensan
 - [azooKey_dictionary_storage](https://github.com/azooKey/azooKey_dictionary_storage)（azooKey の辞書）— Apache License 2.0、Copyright 2024 Miwa / ensan
+- [llama.cpp](https://github.com/ggml-org/llama.cpp)（Zenzai を使うビルドのみ）— MIT License、Copyright (c) 2023-2024 The ggml authors
+
+Zenzai のモデル（[zenz-v3.1-small](https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf)）は CC BY-SA 4.0 で、
+アプリには含まれず、`make zenz-model` で別にダウンロードします。
 
 Apache License 2.0 は GPL version 3 とは両立しますが、version 2 とは両立しないとされています。
 そのため、ビルドしたアプリを配布する場合は GPL version 3 の条件で配布してください。

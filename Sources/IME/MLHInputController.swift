@@ -33,7 +33,24 @@ final class MLHShared {
 
     /// Loaded on first use; nil when the bundle has no azooKey dictionary.
     private lazy var azooKey: AzooKeyTransliterator? =
-        AzooKeyTransliterator.bundledDictionaryURL.map { AzooKeyTransliterator(dictionaryURL: $0) }
+        AzooKeyTransliterator.bundledDictionaryURL.map {
+            AzooKeyTransliterator(dictionaryURL: $0, zenzaiWeightURL: Self.zenzaiModelURL,
+                                  contextLength: Self.integerDefault("ZenzaiContextLength") ?? 40,
+                                  inferenceLimit: Self.integerDefault("ZenzaiInferenceLimit") ?? 10)
+        }
+
+    private static func integerDefault(_ key: String) -> Int? {
+        UserDefaults.standard.object(forKey: key) == nil ? nil : UserDefaults.standard.integer(forKey: key)
+    }
+
+    /// The zenz model for azooKey's neural conversion: the ZenzaiModel default,
+    /// else ~/Library/Application Support/mlh/zenz.gguf, if the file exists.
+    static var zenzaiModelURL: URL? {
+        let path = UserDefaults.standard.string(forKey: "ZenzaiModel").map { ($0 as NSString).expandingTildeInPath }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/mlh/zenz.gguf").path
+        return FileManager.default.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+    }
 
     /// The kanji converter chosen by the KanjiBackend default: "google" (the
     /// Google CGI API) or "azookey" (local, also used when unset).
@@ -43,6 +60,17 @@ final class MLHShared {
             log.error("azooKey dictionary not found; using Google")
         }
         return GoogleTransliterator()
+    }
+
+    /// Loads the azooKey dictionary and the zenz model in the background, so
+    /// that the first conversion does not wait for them.
+    func warmUp() {
+        guard UserDefaults.standard.string(forKey: "KanjiBackend") != "google", let azooKey else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let start = Date()
+            _ = azooKey.convert("にほんご", context: "これは")
+            log.debug("azooKey warmed up in \(Int(Date().timeIntervalSince(start) * 1000))ms")
+        }
     }
 }
 
@@ -65,11 +93,12 @@ final class ConversionTask {
     private(set) var result: KanjiConversion?
     private var waiters: [(KanjiConversion) -> Void] = []
 
-    init(source: String) {
+    /// `context` is the text before `source` on the same line.
+    init(source: String, context: String = "") {
         self.source = source
         let transliterator = MLHShared.shared.transliterator()
         DispatchQueue.global(qos: .userInitiated).async {
-            let conversion = KanjiConversion(source: source, transliterator: transliterator)
+            let conversion = KanjiConversion(source: source, transliterator: transliterator, context: context)
             DispatchQueue.main.async {
                 self.result = conversion
                 let waiters = self.waiters
@@ -404,7 +433,8 @@ final class MLHInputController: IMKInputController {
                                               k: 0, markStart: markStart))
             } else {
                 let source = TextContext.slice(newText, outcome.henkanBegin)
-                pending = .convert(ConversionTask(source: source))
+                let context = TextContext.slice(newText, 0, outcome.henkanBegin)
+                pending = .convert(ConversionTask(source: source, context: context))
             }
         } else {
             pending = .none
@@ -600,7 +630,7 @@ final class MLHInputController: IMKInputController {
         if Self.needsKanji(s.outcome.convertToKanji, henkanBegin: begin, textCount: rendered.text.count) {
             let committed = TextContext.slice(rendered.text, s.markStart, begin)
             let source = TextContext.slice(rendered.text, begin)
-            let task = ConversionTask(source: source)
+            let task = ConversionTask(source: source, context: TextContext.slice(rendered.text, 0, begin))
             if !committed.isEmpty {
                 client.insertText(committed, replacementRange: notFoundRange)
                 typed.append(committed)
