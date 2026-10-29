@@ -204,13 +204,44 @@ fn dictionary_path() -> Option<String> {
             std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
         })
         .map(|path| path.join("mlh/Dictionary"));
-    installed
+    first_existing_dictionary(user_data, installed)
+}
+
+fn first_existing_dictionary(
+    user_data: Option<std::path::PathBuf>,
+    installed: Option<std::path::PathBuf>,
+) -> Option<String> {
+    user_data
         .into_iter()
-        .chain(user_data)
+        .chain(installed)
         .find(|path| path.is_dir())?
         .into_os_string()
         .into_string()
         .ok()
+}
+
+#[cfg(test)]
+mod dictionary_tests {
+    use super::first_existing_dictionary;
+
+    #[test]
+    fn user_dictionary_takes_precedence_and_system_is_a_fallback() {
+        let root = std::env::temp_dir().join(format!("mlh-dictionaries-{}", std::process::id()));
+        let user = root.join("user");
+        let system = root.join("system");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::create_dir_all(&system).unwrap();
+        assert_eq!(
+            first_existing_dictionary(Some(user.clone()), Some(system.clone())),
+            user.to_str().map(str::to_owned)
+        );
+        std::fs::remove_dir(&user).unwrap();
+        assert_eq!(
+            first_existing_dictionary(Some(user), Some(system.clone())),
+            system.to_str().map(str::to_owned)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 async fn show_selection(emitter: &SignalEmitter<'_>, selection: &Selection) -> zbus::Result<()> {
