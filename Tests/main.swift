@@ -1,4 +1,5 @@
 import Foundation
+@testable import MLHCore
 
 let engine = runEngineTests()
 print("engine: \(engine.passed) passed, \(engine.failed) failed")

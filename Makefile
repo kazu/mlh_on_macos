@@ -1,5 +1,6 @@
 # mlh (modeless Japanese input, after Emacs egg-mlh.el) for macOS.
-# Requires only the Command Line Tools (swiftc, codesign).
+# Requires only the Command Line Tools (swift, codesign). The Swift packages
+# (Package.swift) are fetched by SwiftPM on the first build.
 
 APP_NAME     := mlh
 BUILD_DIR    := build
@@ -8,19 +9,20 @@ CONTENTS     := $(APP)/Contents
 EXECUTABLE   := $(CONTENTS)/MacOS/$(APP_NAME)
 PLIST        := $(CONTENTS)/Info.plist
 ICON         := $(CONTENTS)/Resources/iconTemplate.tiff
-TEST_BIN     := $(BUILD_DIR)/mlh-tests
+DICTIONARY   := $(CONTENTS)/Resources/Dictionary
+LICENSES     := $(CONTENTS)/Resources/Licenses
 STRINGS      := $(patsubst Resources/%,$(CONTENTS)/Resources/%,$(wildcard Resources/*.lproj/InfoPlist.strings))
 
-ARCH         := $(shell uname -m)
-TARGET       := $(ARCH)-apple-macos13.0
-
-SWIFTC       := swiftc
-SWIFTFLAGS   := -O -swift-version 5 -target $(TARGET)
-FRAMEWORKS   := -framework InputMethodKit -framework Carbon -framework Cocoa
-
-CORE_SOURCES := $(wildcard Sources/Core/*.swift)
-IME_SOURCES  := $(wildcard Sources/IME/*.swift)
-TEST_SOURCES := $(wildcard Tests/*.swift)
+SWIFT_BUILD  := swift build -c release
+BIN_DIR      := .build/release
+# Tests use @testable, so they get their own build directory with testing on.
+TEST_BUILD   := $(SWIFT_BUILD) -Xswiftc -enable-testing --build-path .build/test
+TEST_BIN     := .build/test/release/mlh-tests
+# The azooKey dictionary, from the AzooKeyKanaKanjiConverter checkout (each
+# build directory has its own).
+AZOOKEY_DICT_PATH := AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary
+AZOOKEY_DIR  := .build/checkouts/AzooKeyKanaKanjiConverter
+AZOOKEY_DICT := .build/checkouts/$(AZOOKEY_DICT_PATH)
 
 # The directory name contains a space: always quote it in recipes and never
 # use it as a make target or prerequisite.
@@ -32,17 +34,24 @@ INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 SIGN_NAME    := MLH Local Code Signing
 SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
 
-.PHONY: all build test install install-system uninstall clean signing-identity
+.PHONY: all build executable test install install-system uninstall clean signing-identity
 
 all: build
 
-build: $(EXECUTABLE) $(PLIST) $(ICON) $(STRINGS)
+build: executable $(PLIST) $(ICON) $(STRINGS)
 	codesign --force --sign "$(SIGN_IDENTITY)" "$(APP)"
 	@echo "built $(APP)"
 
-$(EXECUTABLE): $(CORE_SOURCES) $(IME_SOURCES)
-	@mkdir -p "$(dir $@)"
-	$(SWIFTC) $(SWIFTFLAGS) $(FRAMEWORKS) -module-name MLH -o "$@" $(CORE_SOURCES) $(IME_SOURCES)
+# SwiftPM tracks the sources itself, so this always runs it.
+executable:
+	$(SWIFT_BUILD) --product $(APP_NAME)
+	@mkdir -p "$(dir $(EXECUTABLE))" "$(DICTIONARY)"
+	cp "$(BIN_DIR)/$(APP_NAME)" "$(EXECUTABLE)"
+	rsync -a --delete "$(AZOOKEY_DICT)/" "$(DICTIONARY)/"
+	@mkdir -p "$(LICENSES)"
+	install -m 644 "$(AZOOKEY_DIR)/LICENSE" "$(LICENSES)/AzooKeyKanaKanjiConverter.txt"
+	install -m 644 "$(AZOOKEY_DICT)/../LICENSE" "$(LICENSES)/azooKey_dictionary_storage.txt"
+	install -m 644 LICENSE "$(LICENSES)/mlh.txt"
 
 $(CONTENTS)/Resources/%.lproj/InfoPlist.strings: Resources/%.lproj/InfoPlist.strings
 	@mkdir -p "$(dir $@)"
@@ -57,12 +66,9 @@ $(ICON): scripts/make-icon.swift
 	@mkdir -p "$(dir $@)"
 	swift scripts/make-icon.swift "$@"
 
-test: $(TEST_BIN)
-	./$(TEST_BIN)
-
-$(TEST_BIN): $(CORE_SOURCES) $(TEST_SOURCES)
-	@mkdir -p "$(BUILD_DIR)"
-	$(SWIFTC) -swift-version 5 -target $(TARGET) -module-name MLHTests -o "$@" $(CORE_SOURCES) $(TEST_SOURCES)
+test:
+	$(TEST_BUILD) --product mlh-tests
+	MLH_AZOOKEY_DICTIONARY=".build/test/checkouts/$(AZOOKEY_DICT_PATH)" ./$(TEST_BIN)
 
 install: build
 	-killall $(APP_NAME) 2>/dev/null
@@ -89,7 +95,7 @@ uninstall:
 	@echo "removed $(INSTALLED); remove mlh from System Settings > Keyboard > Input Sources if it is still listed."
 
 clean:
-	rm -rf "$(BUILD_DIR)"
+	rm -rf "$(BUILD_DIR)" .build
 
 signing-identity:
 	scripts/make-signing-identity.sh "$(SIGN_NAME)"

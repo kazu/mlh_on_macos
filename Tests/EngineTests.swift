@@ -1,4 +1,5 @@
 import Foundation
+@testable import MLHCore
 
 private var passed = 0
 private var failed = 0

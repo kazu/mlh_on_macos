@@ -11,7 +11,8 @@ egg-mlh.el (Modeless Conversion Facility) として取り込まれました。
   その場で（カーソル直前のテキストを遡って）変換します。
   例: `nihongo/` + Space → `日本語`（漢字変換モードに入ります）
 - 漢字変換は Egg の変換モード（`egg-conversion-map`）のキー操作を再現しています。
-  変換候補は Google の変換 API (Google CGI API for Japanese Input) から取得します。
+  変換候補は端末内で動く azooKey (AzooKeyKanaKanjiConverter) から取得します。設定で
+  Google の変換 API (Google CGI API for Japanese Input) に切り替えることもできます。
 - **現在は日本語と Latin-1（`l` 方式）のみ対応しています。** Egg（たまご）は多言語の入力システムで、
   日本語のほかにも中国語（ピンイン・注音）、韓国語（ハングル）、タイ語、ギリシャ文字、アイヌ語のカナなど、
   多くの言語・文字を扱えました。それ以外の言語・文字への対応はこれからです。
@@ -19,7 +20,9 @@ egg-mlh.el (Modeless Conversion Facility) として取り込まれました。
 ## 必要環境
 
 - macOS 13 以降（開発・確認は macOS 15 / Apple Silicon）
-- Command Line Tools for Xcode（`swiftc`, `swift`, `codesign`）。Xcode 本体は不要です。
+- Command Line Tools for Xcode（Swift 6.1 以上の `swift` と `codesign`）。Xcode 本体は不要です。
+- 初回のビルドでは SwiftPM が依存パッケージ（AzooKeyKanaKanjiConverter とその辞書など）を取得するため、
+  ネットワーク接続が必要です。
 
 ## ビルドとインストール
 
@@ -28,7 +31,7 @@ make build      # build/mlh.app を作成（ad-hoc 署名済み）
 make test       # Core のテストを実行
 make install    # ~/Library/Input Methods/mlh.app に配置し、入力ソースとして登録・有効化
 make uninstall  # ~/Library/Input Methods/mlh.app を削除
-make clean      # build/ を削除
+make clean      # build/ と .build/（SwiftPM の作業ディレクトリ）を削除
 ```
 
 `make install` は実行中の mlh プロセスを終了し（`killall mlh`）、アプリを置き換えたうえで
@@ -299,6 +302,24 @@ macOS 15 以降では、LAN 内のサーバーに初めて接続するときに�
 Egg は通常候補一覧を表示しませんが、本実装では同じ文節で次／前の候補を一度でも選ぶと
 候補ウィンドウ（1 ページ 9 件）を表示します。
 
+### 漢字変換のエンジン
+
+漢字変換の候補をどこから取るかは、`KanjiBackend` で選びます。
+
+| `KanjiBackend` | エンジン |
+|---|---|
+| `azookey`（既定） | 端末内の [azooKey](https://github.com/azooKey/AzooKeyKanaKanjiConverter)。ネットワーク不要で、読みは外部に送信されません |
+| `google` | Google の変換 API。固有名詞や新しい言葉に強い一方、ネットワーク接続が必要で、読みを Google に送信します |
+
+```sh
+defaults write com.github.kazu.inputmethod.mlh KanjiBackend -string google   # Google に切り替える
+defaults delete com.github.kazu.inputmethod.mlh KanjiBackend                 # 既定（azooKey）に戻す
+```
+
+設定は次の変換から使われます（再起動は不要です）。azooKey の辞書（約 35MB）は
+`mlh.app/Contents/Resources/Dictionary` に入っています。ニューラル変換（Zenzai）は使っていません。
+文節は azooKey の品詞の情報から、自立語ごとに区切ります。
+
 ## ユーザー辞書
 
 `d` 方式（`foo` + `d/`）で使う辞書（`mlh-userdef-table` 相当）です。
@@ -318,12 +339,12 @@ date	2026年	令和8年
 
 ## プライバシーについて
 
-漢字変換では、変換対象の読み（ひらがな）を **Google のサーバー**
-（`https://www.google.com/transliterate`）へ送信します。漢字変換を行う方式（`a i u e o n - , .` と `H`）
-以外の変換は、すべて端末内で処理され、外部には送信されません。
+漢字変換のエンジンを `google` にしたときは、変換対象の読み（ひらがな）を **Google のサーバー**
+（`https://www.google.com/transliterate`）へ送信します。既定の `azookey` では送信しません。
+漢字変換を行う方式（`a i u e o n - , .` と `H`）以外の変換は、すべて端末内で処理され、外部には送信されません。
 ただし `x` 方式を使うと、行が外部コマンドに渡されるか、組み込みの OpenAI 呼び出しでは **OpenAI のサーバー** に送信されます。
 この API は Google が無償で公開しているものですが、提供が予告なく変更・終了される可能性があります。
-その場合、漢字変換は読み（ひらがな・カタカナ）の候補だけになります。
+その場合、Google を使う漢字変換は読み（ひらがな・カタカナ）の候補だけになります（azooKey は影響を受けません）。
 ログ（`log stream --predicate 'subsystem == "com.github.kazu.inputmethod.mlh"' --level debug`）には、
 入力テキストはプライベート扱いでしか記録されません。
 
@@ -349,10 +370,13 @@ date	2026年	令和8年
   - バックスペースを合成する場合は、トリガーのスペースもいったんアプリに入力させ、元の文字列と一緒に
     消します（Ghostty などは IME が処理したスペースも入力してしまうため）。合成には
     アクセシビリティの許可が必要で、許可がない場合はビープ音を鳴らしてスペースを入力します。
-- 漢字変換の範囲に英数字が含まれると、Google の変換結果では全角になることがあります。
-- 漢字変換はネットワーク接続が必要です。通信できない場合は読み（ひらがな）のまま変換モードに入ります。
+- 漢字変換の範囲に英数字が含まれると、Google の変換 API では全角になることがあります。
+- Google の変換 API を使う場合、漢字変換にはネットワーク接続が必要です。通信できない場合は読み（ひらがな）の
+  まま変換モードに入ります。azooKey を使えばネットワークは不要です。
 - 日本語と Latin-1 以外の言語・文字（Egg が対応していた中国語・韓国語・タイ語・ギリシャ文字など）は今後対応予定です。
 - 一度に遡るのは現在行のカーソル直前、最大 1024 文字（UTF-16）までです。
+- mlh を起動できない状態（入力ソースから外れた、など）のあいだに mlh を使おうとしたアプリは、
+  mlh が直ったあとも、そのアプリを開き直すまで mlh に接続できません（キーが何も入らなくなります）。
 - `L`（Lisp 式）には対応していません。`x` は Lisp 関数の代わりに外部コマンドか OpenAI を呼びます。
 
 ## ライセンス
@@ -369,3 +393,11 @@ date	2026年	令和8年
 - egg-mlh.el は GNU General Public License version 2 またはそれ以降のバージョンで配布されています。
 
 本プロジェクトは egg-mlh.el の派生物であるため、同じ GPL-2.0-or-later を適用しています。
+
+ビルドしたアプリには、次のものが含まれます（ライセンス文は `mlh.app/Contents/Resources/Licenses` にあります）。
+
+- [AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter) — MIT License、Copyright (c) 2023 Miwa / Ensan
+- [azooKey_dictionary_storage](https://github.com/azooKey/azooKey_dictionary_storage)（azooKey の辞書）— Apache License 2.0、Copyright 2024 Miwa / ensan
+
+Apache License 2.0 は GPL version 3 とは両立しますが、version 2 とは両立しないとされています。
+そのため、ビルドしたアプリを配布する場合は GPL version 3 の条件で配布してください。

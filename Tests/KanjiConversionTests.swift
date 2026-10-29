@@ -1,4 +1,5 @@
 import Foundation
+@testable import MLHCore
 
 /// Deterministic transliterator for tests. Responses are looked up by the exact
 /// query string; unknown queries are answered by splitting on "," (one segment
@@ -275,6 +276,31 @@ func runKanjiConversionTests() -> (passed: Int, failed: Int) {
             print("NOTE [KanjiConversion] live Google request failed; test skipped")
             passed += 1
         }
+    }
+
+    // --- azooKey (local) ---------------------------------------------------------
+    // The dictionary comes with the AzooKeyKanaKanjiConverter checkout; set
+    // MLH_AZOOKEY_DICTIONARY to use another one.
+    let dictionary = ProcessInfo.processInfo.environment["MLH_AZOOKEY_DICTIONARY"]
+        ?? ".build/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary"
+    if !FileManager.default.fileExists(atPath: dictionary + "/louds") {
+        print("NOTE [KanjiConversion] azooKey dictionary not found at \(dictionary); test skipped")
+        passed += 1
+    } else {
+        let a = AzooKeyTransliterator(dictionaryURL: URL(fileURLWithPath: dictionary, isDirectory: true))
+        let r = a.convert("ここではきものをぬいでください")
+        eq(r?.map { $0.reading } ?? [], ["ここでは", "きものを", "ぬいでください"], "azooKey segments")
+        eq(r?.map { $0.candidates.first ?? "" } ?? [], ["ここでは", "着物を", "脱いでください"], "azooKey best")
+        check(r?[0].candidates.contains("個々では") == true, "azooKey candidates")
+        let fixed = a.convert("ここではき,ものを")
+        eq(fixed?.map { $0.reading } ?? [], ["ここではき", "ものを"], "azooKey comma boundary")
+        eq(a.convert("きもの,")?.count, 1, "azooKey fixed segment")
+        check(a.convert("") == nil, "azooKey empty => nil")
+        let kc = KanjiConversion(source: "にほんごにゅうりょく", transliterator: a)
+        eq(kc.text, "日本語入力", "azooKey KanjiConversion")
+        kc.shrinkSegment()
+        eq(kc.readingText, "にほんごにゅうりょく", "azooKey shrink reading preserved")
+        check(kc.segments.count >= 2, "azooKey shrink splits")
     }
 
     return (passed, failed)

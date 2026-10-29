@@ -1,4 +1,5 @@
 import Cocoa
+import MLHCore
 import InputMethodKit
 import Carbon
 import os
@@ -29,6 +30,20 @@ final class MLHShared {
         engine.userDictionary = mtime == nil ? UserDictionary() : UserDictionary.load(from: url)
         log.debug("user dictionary (re)loaded, exists: \(mtime != nil)")
     }
+
+    /// Loaded on first use; nil when the bundle has no azooKey dictionary.
+    private lazy var azooKey: AzooKeyTransliterator? =
+        AzooKeyTransliterator.bundledDictionaryURL.map { AzooKeyTransliterator(dictionaryURL: $0) }
+
+    /// The kanji converter chosen by the KanjiBackend default: "google" (the
+    /// Google CGI API) or "azookey" (local, also used when unset).
+    func transliterator() -> Transliterator {
+        if UserDefaults.standard.string(forKey: "KanjiBackend") != "google" {
+            if let azooKey { return azooKey }
+            log.error("azooKey dictionary not found; using Google")
+        }
+        return GoogleTransliterator()
+    }
 }
 
 /// Selection among user-dictionary candidates (mlh-select-mode-map).
@@ -52,8 +67,9 @@ final class ConversionTask {
 
     init(source: String) {
         self.source = source
+        let transliterator = MLHShared.shared.transliterator()
         DispatchQueue.global(qos: .userInitiated).async {
-            let conversion = KanjiConversion(source: source, transliterator: GoogleTransliterator())
+            let conversion = KanjiConversion(source: source, transliterator: transliterator)
             DispatchQueue.main.async {
                 self.result = conversion
                 let waiters = self.waiters

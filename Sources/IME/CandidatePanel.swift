@@ -1,4 +1,5 @@
 import Cocoa
+import MLHCore
 
 /// A small borderless, non-activating panel that lists conversion candidates
 /// vertically ("1 日本語", ...), up to `pageSize` per page.

@@ -1,4 +1,5 @@
 import Cocoa
+import MLHCore
 import InputMethodKit
 
 /// The text of the current line that precedes the cursor, as handed to the
