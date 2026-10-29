@@ -320,11 +320,13 @@ fn converts_through_ibus_input_context() {
         .unwrap();
     assert!(handled);
     commits.next().unwrap();
-    for state in [0_u32, 1 << 30] {
-        let handled: bool = context
-            .call("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
-            .unwrap();
-        assert!(handled);
+    for _ in 0..35 {
+        for state in [0_u32, 1 << 30] {
+            let handled: bool = context
+                .call("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
+                .unwrap();
+            assert!(handled);
+        }
     }
     let message = commits.next().unwrap();
     let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
@@ -332,11 +334,13 @@ fn converts_through_ibus_input_context() {
         panic!("expected IBusText")
     };
     assert_eq!(value.fields()[2], Value::new("HELLO"));
-    let down: (u32, u32, u32) = queued.next().unwrap().body().deserialize().unwrap();
-    let up: (u32, u32, u32) = queued.next().unwrap().body().deserialize().unwrap();
-    assert_eq!(down.0, 0x71);
-    assert_eq!(up.0, 0x71);
-    assert_ne!(up.2 & (1 << 30), 0);
+    for _ in 0..35 {
+        let down: (u32, u32, u32) = queued.next().unwrap().body().deserialize().unwrap();
+        let up: (u32, u32, u32) = queued.next().unwrap().body().deserialize().unwrap();
+        assert_eq!((down.0, up.0), (0x71, 0x71));
+        assert_eq!(down.2 & (1 << 30), 0);
+        assert_ne!(up.2 & (1 << 30), 0);
+    }
 
     let attributes = Value::new((
         "IBusAttrList",

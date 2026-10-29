@@ -395,9 +395,7 @@ impl InputMethod {
                     executions.active = None;
                     Some((true, state & (1 << 26) == 0))
                 } else {
-                    if running.queued.len() < 64 {
-                        running.queued.push((keyval, keycode, state));
-                    }
+                    running.queued.push((keyval, keycode, state));
                     Some((false, true))
                 }
             } else {
