@@ -3,16 +3,15 @@
 %:
 	dh $@
 
-override_dh_auto_clean:
-
+# dh_auto_build replaces HOME, which hides rustup's installed toolchain.
 override_dh_auto_build:
 	$(MAKE) build
 
 override_dh_auto_test:
-	$(MAKE) test
+	$(MAKE) -o build test
 
 override_dh_auto_install:
-	$(MAKE) install PREFIX=/usr DESTDIR=$(CURDIR)/debian/mlh-ibus
+	$(MAKE) -o build install PREFIX=/usr DESTDIR="$(CURDIR)/debian/mlh-ibus"
 
 # dwz does not understand Swift's .debug_names section.
 override_dh_dwz:
