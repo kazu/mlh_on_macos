@@ -6,6 +6,9 @@ Files: *
 Copyright: 2025-2026 Kazuhisa TAKEI and contributors
 License: GPL-2+
  The full license is available in /usr/share/common-licenses/GPL-2.
-Comment: The binary package also includes the azooKey conversion library
- (MIT) and dictionary (Apache-2.0). Their licenses are installed in
- /usr/share/doc/mlh-ibus/.
+Comment: The distributed binary combines GPL-2-or-later code with the
+ Apache-2.0 azooKey dictionary and is distributed under GPL-3-or-later.
+ The full GPL-3 license is available in /usr/share/common-licenses/GPL-3.
+ Third-party license and copyright notices, including the Swift and Rust
+ dependencies and the azooKey dictionary, are in
+ /usr/share/doc/mlh-ibus/licenses/ and /usr/share/doc/mlh-ibus/.

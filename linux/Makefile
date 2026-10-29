@@ -26,6 +26,7 @@ install: build
 	cp -Rf "$(DICTIONARY)/." "$(DESTDIR)$(PREFIX)/share/mlh/Dictionary/"
 	install -m 644 "$(AZOOKEY_DIR)/LICENSE" "$(DESTDIR)$(PREFIX)/share/doc/mlh-ibus/AzooKeyKanaKanjiConverter-LICENSE"
 	install -m 644 "$(DICTIONARY)/../LICENSE" "$(DESTDIR)$(PREFIX)/share/doc/mlh-ibus/azooKey-dictionary-LICENSE"
+	swift linux/collect-licenses.swift "$(DESTDIR)$(PREFIX)/share/doc/mlh-ibus/licenses" "$(SWIFT_BUILD_DIR)/checkouts"
 	"$(DESTDIR)$(PREFIX)/bin/mlh-ibus" --component-xml "$(PREFIX)/bin/mlh-ibus" > "$(DESTDIR)$(PREFIX)/share/ibus/component/mlh.xml"
 
 test: build
