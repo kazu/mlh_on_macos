@@ -37,13 +37,15 @@ enum Execute {
         return nil
     }
 
+    static var settings: ExecuteFile { ExecuteFile.load() }
+
     static func isAvailable(_ key: String?, app: String?) -> Bool {
-        if ExecuteFile.load().settings(for: key, app: app) != nil { return true }
+        if Execute.settings.settings(for: key, app: app) != nil { return true }
         return key == nil && backend != nil
     }
 
     static func makeTask(source: String, key: String?, clientBundleID app: String?) -> ExecuteTask? {
-        let settings = ExecuteFile.load().settings(for: key, app: app)
+        let settings = Execute.settings.settings(for: key, app: app)
         if key != nil && settings == nil { return nil }
         let s = settings ?? ExecuteSettings()
         // Plain x/ keeps the default backend unless the app entry names one.
