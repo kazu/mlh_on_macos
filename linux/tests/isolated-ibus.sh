@@ -24,6 +24,11 @@ cat > "$work/slow-filter" <<'EOF'
 sleep 0.5
 tr '[:lower:]' '[:upper:]'
 EOF
+cat > "$work/queue-filter" <<'EOF'
+#!/bin/sh
+while [ ! -e "$XDG_CONFIG_HOME/mlh/queue-release" ]; do sleep 0.02; done
+tr '[:lower:]' '[:upper:]'
+EOF
 cat > "$work/fail" <<'EOF'
 #!/bin/sh
 exit 1
@@ -32,7 +37,7 @@ cat > "$work/client" <<'EOF'
 #!/bin/sh
 printf '%s' "$MLH_CLIENT_BUNDLE_ID"
 EOF
-chmod +x "$work/filter" "$work/slow" "$work/slow-filter" "$work/fail" "$work/client"
+chmod +x "$work/filter" "$work/slow" "$work/slow-filter" "$work/queue-filter" "$work/fail" "$work/client"
 "${MLH_OPENAI_SERVER:?}" > "$work/openai.port" &
 server=$!
 for _ in $(seq 1 100); do
@@ -43,7 +48,7 @@ read -r port < "$work/openai.port"
 export MLH_EXEC_BACKEND=openai
 export MLH_OPENAI_BASE_URL="http://127.0.0.1:$port/v1"
 export MLH_OPENAI_MODEL=test
-printf '{"1":{"command":"%s"},"2":{"command":"%s"},"3":{"baseURL":"http://127.0.0.1:%s/v1","model":"test"},"4":{"command":"%s"},"5":{"command":"%s"},"apps":{"mlh-test":{"6":{"command":"%s"}}}}\n' "$work/filter" "$work/slow" "$port" "$work/slow-filter" "$work/fail" "$work/client" > "$XDG_CONFIG_HOME/mlh/execute.json"
+printf '{"1":{"command":"%s"},"2":{"command":"%s"},"3":{"baseURL":"http://127.0.0.1:%s/v1","model":"test"},"4":{"command":"%s"},"5":{"command":"%s"},"7":{"command":"%s"},"apps":{"mlh-test":{"6":{"command":"%s"}}}}\n' "$work/filter" "$work/slow" "$port" "$work/slow-filter" "$work/fail" "$work/queue-filter" "$work/client" > "$XDG_CONFIG_HOME/mlh/execute.json"
 mkdir -p "$work/components"
 export IBUS_COMPONENT_PATH="$work/components"
 cat > "$work/run-engine" <<EOF

@@ -309,7 +309,7 @@ fn converts_through_ibus_input_context() {
     let text = Value::new((
         "IBusText",
         HashMap::<String, OwnedValue>::new(),
-        "hello4x/",
+        "hello7x/",
         attributes,
     ));
     context
@@ -328,6 +328,9 @@ fn converts_through_ibus_input_context() {
             assert!(handled);
         }
     }
+    let release = std::path::PathBuf::from(std::env::var_os("XDG_CONFIG_HOME").unwrap())
+        .join("mlh/queue-release");
+    std::fs::write(release, "").unwrap();
     let message = commits.next().unwrap();
     let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
     let Value::Structure(value) = Value::try_from(&value).unwrap() else {
