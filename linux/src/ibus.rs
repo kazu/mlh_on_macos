@@ -420,23 +420,30 @@ impl InputMethod {
                 let running = executions.running.get_mut(&id).unwrap();
                 if cancel {
                     running.cancelled = true;
+                    let queued = std::mem::take(&mut running.queued);
                     if let Some(handle) = &running.handle {
                         handle.cancel();
                     }
                     executions.active = None;
-                    Some((true, state & (1 << 26) == 0))
+                    Some((true, state & (1 << 26) == 0, queued))
                 } else {
                     running.queued.push((keyval, keycode, state));
-                    Some((false, true))
+                    Some((false, true, Vec::new()))
                 }
             } else {
                 None
             }
         };
-        if let Some((cancelled, handled)) = pending {
+        if let Some((cancelled, handled, queued)) = pending {
             if cancelled {
                 if let Ok(value) = ibus_text("") {
                     let _ = Self::update_preedit_text(&emitter, value, 0, false, 0).await;
+                }
+                for (keyval, keycode, state) in queued {
+                    if state & (1 << 30) == 0 {
+                        Self::track_typed(&self.typed, keyval, state);
+                    }
+                    let _ = Self::forward_key_event(&emitter, keyval, keycode, state).await;
                 }
             }
             return handled;

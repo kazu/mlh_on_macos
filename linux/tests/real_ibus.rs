@@ -207,6 +207,13 @@ fn converts_through_ibus_input_context() {
     assert!(handled);
     commits.next().unwrap();
     let mut cancelled_preedit = context.receive_signal("UpdatePreeditText").unwrap();
+    let mut cancelled_keys = context.receive_signal("ForwardKeyEvent").unwrap();
+    for state in [0_u32, 1 << 30] {
+        let handled: bool = context
+            .call("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
+            .unwrap();
+        assert!(handled);
+    }
     let handled: bool = context
         .call("ProcessKeyEvent", &(0xff1b_u32, 0_u32, 0_u32))
         .unwrap();
@@ -214,6 +221,11 @@ fn converts_through_ibus_input_context() {
     let message = cancelled_preedit.next().unwrap();
     let (_, _, visible): (OwnedValue, u32, bool) = message.body().deserialize().unwrap();
     assert!(!visible);
+    for state in [0_u32, 1 << 30] {
+        let key: (u32, u32, u32) = cancelled_keys.next().unwrap().body().deserialize().unwrap();
+        assert_eq!(key, (0x71, 24, state));
+    }
+    drop(cancelled_keys);
 
     let mut progress = context.receive_signal("UpdatePreeditText").unwrap();
     let attributes = Value::new((
