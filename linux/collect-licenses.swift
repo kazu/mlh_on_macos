@@ -39,7 +39,20 @@ let host = version.components(separatedBy: "\n").first { $0.hasPrefix("host: ") 
     .dropFirst("host: ".count)
 let metadata = try output("cargo", ["metadata", "--locked", "--format-version", "1", "--filter-platform", String(host), "--manifest-path", "linux/Cargo.toml"])
 let json = try JSONSerialization.jsonObject(with: metadata) as! [String: Any]
-for package in json["packages"] as! [[String: Any]] where !(package["source"] is NSNull) {
+// The packages the binary is built from: dev-dependencies are not shipped.
+let resolve = json["resolve"] as! [String: Any]
+let nodes = Dictionary(uniqueKeysWithValues: (resolve["nodes"] as! [[String: Any]]).map { ($0["id"] as! String, $0) })
+var shipped = Set<String>()
+var pending = [resolve["root"] as! String]
+while let id = pending.popLast() {
+    guard shipped.insert(id).inserted else { continue }
+    for dep in nodes[id]!["deps"] as! [[String: Any]]
+    where (dep["dep_kinds"] as! [[String: Any]]).contains(where: { $0["kind"] as? String != "dev" }) {
+        pending.append(dep["pkg"] as! String)
+    }
+}
+for package in json["packages"] as! [[String: Any]]
+where !(package["source"] is NSNull) && shipped.contains(package["id"] as! String) {
     let manifest = URL(fileURLWithPath: package["manifest_path"] as! String)
     try copyNotices(from: manifest.deletingLastPathComponent(), to: "rust/\(package["name"] as! String)-\(package["version"] as! String)")
 }
