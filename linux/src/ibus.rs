@@ -14,6 +14,11 @@ use zbus::{
 
 use crate::core::{Conversion, Engine, Execution, ResultValue, TypedBuffer, edit_plan};
 
+#[cfg(test)]
+pub(crate) static FOCUS_FLUSH_HOOK: Mutex<
+    Option<(std::sync::mpsc::Sender<()>, async_channel::Receiver<()>)>,
+> = Mutex::new(None);
+
 #[derive(Default)]
 pub struct Factory {
     next_id: AtomicU64,
@@ -70,6 +75,7 @@ impl EngineService {
 
 #[derive(Default)]
 struct InputMethod {
+    operation_gate: async_lock::Mutex<()>,
     surrounding: Mutex<Option<(String, u32, u32)>>,
     conversion: Mutex<Option<Conversion>>,
     lookup_visible: Mutex<bool>,
@@ -380,6 +386,14 @@ async fn show_selection(emitter: &SignalEmitter<'_>, selection: &Selection) -> z
 impl InputMethod {
     async fn flush_sdl_preedit(&self, emitter: &SignalEmitter<'_>) {
         let pending = std::mem::take(&mut *self.sdl_preedit.lock().unwrap());
+        #[cfg(test)]
+        {
+            let hook = FOCUS_FLUSH_HOOK.lock().unwrap().take();
+            if let Some((entered, resume)) = hook {
+                entered.send(()).unwrap();
+                resume.recv().await.unwrap();
+            }
+        }
         if !pending.is_empty() {
             if let Ok(empty) = ibus_text("") {
                 let _ = Self::update_preedit_text(emitter, empty, 0, false, 0).await;
@@ -559,6 +573,7 @@ impl InputMethod {
         state: u32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> bool {
+        let _guard = self.operation_gate.lock().await;
         let pending = {
             let mut executions = self.executions.lock().unwrap();
             if let Some(id) = executions.active {
@@ -1127,6 +1142,7 @@ impl InputMethod {
     }
 
     async fn focus_in(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         let _ = Self::require_surrounding_text(&emitter).await;
     }
     async fn focus_in_id(
@@ -1135,14 +1151,17 @@ impl InputMethod {
         client: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) {
+        let _guard = self.operation_gate.lock().await;
         *self.sdl_client.lock().unwrap() = client == "SDL2_Application";
         *self.app.lock().unwrap() = client.split_once(':').map(|(_, app)| app.to_owned());
         let _ = Self::require_surrounding_text(&emitter).await;
     }
     async fn focus_out(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         self.finish_context(&emitter).await;
     }
     async fn focus_out_id(&self, _path: &str, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         self.finish_context(&emitter).await;
         *self.app.lock().unwrap() = None;
         *self.sdl_client.lock().unwrap() = false;
@@ -1158,6 +1177,7 @@ impl InputMethod {
     fn enable(&self) {}
     fn disable(&self) {}
     async fn reset(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         self.finish_context(&emitter).await;
     }
     fn set_surrounding_text(&self, text: OwnedValue, cursor: u32, anchor: u32) {

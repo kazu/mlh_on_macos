@@ -567,6 +567,8 @@ dependencies = [
 name = "mlh-ibus"
 version = "0.1.2"
 dependencies = [
+ "async-channel",
+ "async-lock",
  "criterion",
  "percent-encoding",
  "zbus",
