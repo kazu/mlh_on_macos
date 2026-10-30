@@ -301,7 +301,57 @@ func runKanjiConversionTests() -> (passed: Int, failed: Int) {
         kc.shrinkSegment()
         eq(kc.readingText, "にほんごにゅうりょく", "azooKey shrink reading preserved")
         check(kc.segments.count >= 2, "azooKey shrink splits")
+
+        // Zenzai benchmark (MLH_ZENZ_MODEL=<gguf>): accuracy and time for
+        // context lengths and inference limits. Informational only.
+        if let model = ProcessInfo.processInfo.environment["MLH_ZENZ_MODEL"] {
+            zenzaiBenchmark(dictionary: URL(fileURLWithPath: dictionary, isDirectory: true),
+                            model: URL(fileURLWithPath: model))
+            passed += 1
+        }
     }
 
     return (passed, failed)
+}
+
+private func zenzaiBenchmark(dictionary: URL, model: URL) {
+    // (text before, reading, expected). The first ten have the clue right
+    // before the reading, the next six 20-40 characters away.
+    let cases: [(String, String, String)] = [
+        ("新聞社の", "きしゃ", "記者"), ("駅から", "きしゃ", "汽車"),
+        ("他国の内政に", "かんしょう", "干渉"), ("美術館で絵を", "かんしょう", "鑑賞"),
+        ("計算が", "せいかく", "正確"), ("彼は優しい", "せいかく", "性格"),
+        ("川に", "はし", "橋"), ("ご飯を食べるときは", "はし", "箸"),
+        ("明日ではなく", "きょう", "今日"), ("この", "しよう", "仕様"),
+        ("駅のホームでずっと待っていたけれど、なかなか来ないあの", "きしゃ", "汽車"),
+        ("新聞社で働き始めてから三年が経ち、ようやく一人前の", "きしゃ", "記者"),
+        ("外国の政府が、自分たちの国の問題に対して何度も強い", "かんしょう", "干渉"),
+        ("このシステムの設計書を読んでいるが、データベースの", "しよう", "仕様"),
+        ("先生に質問したいことがあるので、授業が終わったあとの", "じかん", "時間"),
+        ("ピアノの発表会に向けて毎日練習しているので、本番の", "えんそう", "演奏"),
+        ("", "きょうはいいてんきですね", "今日はいい天気ですね"),
+    ]
+    let configs: [(name: String, zenz: Bool, context: Int, limit: Int)] = [
+        ("no zenzai", false, 0, 10),
+        ("ctx 0  lim 10", true, 0, 10), ("ctx 10 lim 10", true, 10, 10), ("ctx 20 lim 10", true, 20, 10),
+        ("ctx 40 lim 10", true, 40, 10), ("ctx 80 lim 10", true, 80, 10),
+        ("ctx 40 lim 3", true, 40, 3), ("ctx 40 lim 1", true, 40, 1),
+    ]
+    for config in configs {
+        let t = AzooKeyTransliterator(dictionaryURL: dictionary, zenzaiWeightURL: config.zenz ? model : nil,
+                                      contextLength: config.context, inferenceLimit: config.limit)
+        let loadStart = Date()
+        _ = t.convert("あ", context: nil)   // load the dictionary and the model
+        let loadMs = Date().timeIntervalSince(loadStart) * 1000
+        var correct = 0, total = 0.0, worst = 0.0, misses: [String] = []
+        for (context, reading, expected) in cases {
+            let start = Date()
+            let got = t.convert(reading, context: context)?.map { $0.candidates.first ?? "" }.joined() ?? "-"
+            let ms = Date().timeIntervalSince(start) * 1000
+            total += ms; worst = max(worst, ms)
+            if got == expected { correct += 1 } else { misses.append("\(reading)→\(got)") }
+        }
+        print(String(format: "BENCH %@ : %d/%d correct, load %.0fms, avg %.0fms, max %.0fms | %@", config.name, correct,
+                     cases.count, loadMs, total / Double(cases.count), worst, misses.joined(separator: " ")))
+    }
 }

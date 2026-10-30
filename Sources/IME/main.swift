@@ -17,6 +17,9 @@ let terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: 
 terminationSource.setEventHandler { exit(0) }
 terminationSource.resume()
 
+// Load the kanji converter now rather than on the first conversion.
+DispatchQueue.main.async { MLHShared.shared.warmUp() }
+
 withExtendedLifetime((server, terminationSource)) {
     NSApplication.shared.run()
 }
