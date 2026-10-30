@@ -1,0 +1,35 @@
+# Runs the tests on macOS and Linux for every push to a branch. The build
+# directories are cached until the dependencies change.
+name: test
+
+on:
+  push:
+    branches: ["**"]
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: macos-${{ hashFiles('Package.resolved') }}
+      - run: make test
+
+  linux:
+    runs-on: ubuntu-24.04
+    # swiftlang (>= 6.1) and libobjc-15-dev come from Ubuntu 26.04.
+    container: ubuntu:26.04
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git
+      - uses: actions/checkout@v4
+      - run: apt-get build-dep -y ./
+      # The Makefile's MLH_WORK_DIR and Cargo's downloads.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/mlh-wayland
+            ~/.cargo/registry
+          key: linux-${{ hashFiles('Package.resolved', 'linux/Cargo.lock') }}
+      - run: make test
