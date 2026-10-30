@@ -15,6 +15,11 @@ PLIST        := $(CONTENTS)/Info.plist
 ICON         := $(CONTENTS)/Resources/iconTemplate.tiff
 DICTIONARY   := $(CONTENTS)/Resources/Dictionary
 LICENSES     := $(CONTENTS)/Resources/Licenses
+FRAMEWORKS   := $(CONTENTS)/Frameworks
+# The zenz model for azooKey's neural conversion (CC-BY-SA 4.0, not bundled).
+ZENZ_MODEL_URL := https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf
+MLH_SUPPORT  := $(HOME)/Library/Application Support/mlh
+ZENZ_MODEL   := $(MLH_SUPPORT)/zenz.gguf
 STRINGS      := $(patsubst Resources/%,$(CONTENTS)/Resources/%,$(wildcard Resources/*.lproj/InfoPlist.strings))
 
 SWIFT_BUILD  := swift build -c release
@@ -38,11 +43,12 @@ INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 SIGN_NAME    := MLH Local Code Signing
 SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
 
-.PHONY: all build executable test install install-system uninstall clean signing-identity
+.PHONY: all build executable test install install-system uninstall clean signing-identity zenz-model
 
 all: build
 
 build: executable $(PLIST) $(ICON) $(STRINGS)
+	if [ -d "$(FRAMEWORKS)" ]; then codesign --force --sign "$(SIGN_IDENTITY)" "$(FRAMEWORKS)"/*.framework; fi
 	codesign --force --sign "$(SIGN_IDENTITY)" "$(APP)"
 	@echo "built $(APP)"
 
@@ -56,6 +62,12 @@ executable:
 	install -m 644 "$(AZOOKEY_DIR)/LICENSE" "$(LICENSES)/AzooKeyKanaKanjiConverter.txt"
 	install -m 644 "$(AZOOKEY_DICT)/../LICENSE" "$(LICENSES)/azooKey_dictionary_storage.txt"
 	install -m 644 LICENSE "$(LICENSES)/mlh.txt"
+	# llama.framework, linked when azooKey is built with Zenzai (MLH_ZENZAI).
+	rm -rf "$(FRAMEWORKS)"
+	if otool -L "$(EXECUTABLE)" | grep -q llama.framework; then \
+		mkdir -p "$(FRAMEWORKS)" && rsync -a "$(BIN_DIR)/llama.framework" "$(FRAMEWORKS)/" && \
+		install -m 644 Resources/ThirdParty/llama.cpp-LICENSE.txt "$(LICENSES)/llama.cpp.txt"; \
+	fi
 
 $(CONTENTS)/Resources/%.lproj/InfoPlist.strings: Resources/%.lproj/InfoPlist.strings
 	@mkdir -p "$(dir $@)"
@@ -105,3 +117,8 @@ signing-identity:
 	scripts/make-signing-identity.sh "$(SIGN_NAME)"
 
 endif
+
+# Downloads the zenz model used by azooKey's neural conversion.
+zenz-model:
+	mkdir -p "$(MLH_SUPPORT)"
+	curl -fL -o "$(ZENZ_MODEL)" "$(ZENZ_MODEL_URL)"

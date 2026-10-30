@@ -8,6 +8,14 @@ public protocol Transliterator {
     /// Synchronous. `text` may contain "," as fixed segment boundaries.
     /// Returns nil on failure (network error, timeout, bad JSON).
     func convert(_ text: String) -> [(reading: String, candidates: [String])]?
+    /// `context` is the text before `text`, for converters that can use it.
+    func convert(_ text: String, context: String?) -> [(reading: String, candidates: [String])]?
+}
+
+extension Transliterator {
+    public func convert(_ text: String, context: String?) -> [(reading: String, candidates: [String])]? {
+        convert(text)
+    }
 }
 
 /// Transliterator backed by Google's CGI API for Japanese input:
