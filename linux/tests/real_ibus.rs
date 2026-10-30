@@ -8,10 +8,17 @@ use zbus::{
 };
 
 fn send_command(context: &Proxy<'_>, command: &[u8]) {
-    for key in command.iter().copied().chain([b' ']) {
+    send_keys(
+        context,
+        command.iter().copied().chain([b' ']).map(u32::from),
+    );
+}
+
+fn send_keys(context: &Proxy<'_>, keys: impl IntoIterator<Item = u32>) {
+    for key in keys {
         assert!(
             context
-                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(key), 0_u32, 0_u32))
+                .call::<_, _, bool>("ProcessKeyEvent", &(key, 0_u32, 0_u32))
                 .unwrap()
         );
     }
@@ -97,11 +104,12 @@ fn converts_sdl2_input_context() {
     context.call::<_, _, ()>("FocusIn", &()).unwrap();
     let mut commits = context.receive_signal("CommitText").unwrap();
     send_command(&context, b"hello7x/");
+    send_keys(&context, [0xff08, 0x61, 0xff08, 0x65, 0x01000301, 0xff08]);
     send_q_press_and_release(&context);
     let release = std::path::PathBuf::from(std::env::var_os("XDG_CONFIG_HOME").unwrap())
         .join("mlh/queue-release");
     std::fs::write(&release, "").unwrap();
-    for expected in ["HELLO", "q"] {
+    for expected in ["HELL", "q"] {
         assert_commit_text(commits.next().unwrap(), expected);
     }
     std::fs::remove_file(release).unwrap();
@@ -109,6 +117,7 @@ fn converts_sdl2_input_context() {
     context.call::<_, _, ()>("FocusIn", &()).unwrap();
     let mut commits = context.receive_signal("CommitText").unwrap();
     send_command(&context, b"hello2x/");
+    send_keys(&context, [0x61, 0xff08]);
     send_q_press_and_release(&context);
     assert!(
         context

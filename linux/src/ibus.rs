@@ -144,6 +144,54 @@ fn key_character(keyval: u32) -> Option<char> {
         .filter(|c| !c.is_control() && !('\u{f700}'..='\u{f8ff}').contains(c))
 }
 
+fn prepare_sdl_replay(
+    typed: &Mutex<TypedBuffer>,
+    output: &mut String,
+    queued: &[(u32, u32, u32)],
+) -> Vec<bool> {
+    let mut emit = vec![true; queued.len()];
+    let mut characters = Vec::new();
+    let mut output_editable = true;
+    for (index, &(keyval, _, state)) in queued.iter().enumerate() {
+        if state & (1 << 30) != 0 {
+            continue;
+        }
+        let plain = state & (4 | 8 | (1 << 26) | (1 << 28)) == 0;
+        let old = if plain && keyval == 0xff08 {
+            Some(typed.lock().unwrap().text().chars().count())
+        } else {
+            None
+        };
+        InputMethod::track_typed(typed, keyval, state);
+        if let Some(old) = old {
+            let removed = old.saturating_sub(typed.lock().unwrap().text().chars().count());
+            let available = characters.len()
+                + if output_editable {
+                    output.chars().count()
+                } else {
+                    0
+                };
+            if removed > 0 && removed <= available {
+                emit[index] = false;
+                for _ in 0..removed {
+                    if let Some(previous) = characters.pop() {
+                        emit[previous] = false;
+                    } else {
+                        output.pop();
+                    }
+                }
+                continue;
+            }
+        } else if plain && key_character(keyval).is_some() {
+            characters.push(index);
+            continue;
+        }
+        characters.clear();
+        output_editable = false;
+    }
+    emit
+}
+
 extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: i32) {
     let callback = unsafe { &*(context as *mut ExecuteCallback) };
     let text = if text.is_null() {
@@ -160,6 +208,7 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
         if let Some(running) = executions.running.get_mut(&callback.id) {
             if active && !running.cancelled {
                 if done != 0 {
+                    let mut sdl_emit = None;
                     if let Some((base, pending)) = &running.sdl {
                         let target = text
                             .as_deref()
@@ -169,10 +218,16 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
                             edit_plan(base, &target).and_then(|(scalars, _, replacement)| {
                                 replace_pending(pending, scalars, &replacement)
                             });
-                        let (output, target) = match output {
+                        let (mut output, target) = match output {
                             Some(output) => (output, target),
                             None => (pending.clone(), base.clone()),
                         };
+                        callback.typed.lock().unwrap().set(&target);
+                        sdl_emit = Some(prepare_sdl_replay(
+                            &callback.typed,
+                            &mut output,
+                            &running.queued,
+                        ));
                         callback.sdl_preedit.lock().unwrap().clear();
                         if let Ok(empty) = ibus_text("") {
                             let _ = callback.connection.emit_signal(
@@ -192,7 +247,6 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
                                 &(value,),
                             );
                         }
-                        callback.typed.lock().unwrap().set(&target);
                     } else if let Some(text) = text.as_deref() {
                         if running.synthetic && !running.terminal_delete {
                             for _ in 0..running.characters {
@@ -239,11 +293,14 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
                             &(value, 0_u32, false, 0_u32),
                         );
                     }
-                    for key in &running.queued {
-                        if key.2 & (1 << 30) == 0 {
+                    for (index, key) in running.queued.iter().enumerate() {
+                        if running.sdl.is_none() && key.2 & (1 << 30) == 0 {
                             InputMethod::track_typed(&callback.typed, key.0, key.2);
                         }
                         if running.sdl.is_some() {
+                            if !sdl_emit.as_ref().unwrap()[index] {
+                                continue;
+                            }
                             if key.2 & (1 << 30) != 0 {
                                 continue;
                             }
@@ -601,15 +658,27 @@ impl InputMethod {
         };
         if let Some((cancelled, handled, queued, sdl)) = pending {
             if cancelled {
+                let sdl_emit = if sdl {
+                    Some(prepare_sdl_replay(
+                        &self.typed,
+                        &mut self.sdl_preedit.lock().unwrap(),
+                        &queued,
+                    ))
+                } else {
+                    None
+                };
                 self.flush_sdl_preedit(&emitter).await;
                 if let Ok(value) = ibus_text("") {
                     let _ = Self::update_preedit_text(&emitter, value, 0, false, 0).await;
                 }
-                for (keyval, keycode, state) in queued {
-                    if state & (1 << 30) == 0 {
+                for (index, (keyval, keycode, state)) in queued.into_iter().enumerate() {
+                    if !sdl && state & (1 << 30) == 0 {
                         Self::track_typed(&self.typed, keyval, state);
                     }
                     if sdl {
+                        if !sdl_emit.as_ref().unwrap()[index] {
+                            continue;
+                        }
                         if state & (1 << 30) != 0 {
                             continue;
                         }
