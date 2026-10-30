@@ -14,6 +14,11 @@ use zbus::{
 
 use crate::core::{Conversion, Engine, Execution, ResultValue, TypedBuffer, edit_plan};
 
+#[cfg(test)]
+pub(crate) static FOCUS_FLUSH_HOOK: Mutex<
+    Option<(std::sync::mpsc::Sender<()>, async_channel::Receiver<()>)>,
+> = Mutex::new(None);
+
 #[derive(Default)]
 pub struct Factory {
     next_id: AtomicU64,
@@ -70,6 +75,7 @@ impl EngineService {
 
 #[derive(Default)]
 struct InputMethod {
+    operation_gate: async_lock::Mutex<()>,
     surrounding: Mutex<Option<(String, u32, u32)>>,
     conversion: Mutex<Option<Conversion>>,
     lookup_visible: Mutex<bool>,
@@ -78,6 +84,8 @@ struct InputMethod {
     executions: Arc<Mutex<Executions>>,
     app: Mutex<Option<String>>,
     content_purpose: Mutex<u32>,
+    sdl_client: Mutex<bool>,
+    sdl_preedit: Arc<Mutex<String>>,
 }
 
 impl Drop for InputMethod {
@@ -102,6 +110,7 @@ struct Running {
     terminal_delete: bool,
     queued: Vec<(u32, u32, u32)>,
     cancelled: bool,
+    sdl: Option<(String, String)>,
 }
 
 struct ExecuteCallback {
@@ -109,7 +118,78 @@ struct ExecuteCallback {
     path: OwnedObjectPath,
     executions: Arc<Mutex<Executions>>,
     typed: Arc<Mutex<TypedBuffer>>,
+    sdl_preedit: Arc<Mutex<String>>,
     id: u64,
+}
+
+fn replace_pending(pending: &str, scalars: u32, replacement: &str) -> Option<String> {
+    let count = pending.chars().count();
+    if scalars as usize > count {
+        return None;
+    }
+    let retained: String = pending.chars().take(count - scalars as usize).collect();
+    Some(format!("{retained}{replacement}"))
+}
+
+fn key_character(keyval: u32) -> Option<char> {
+    let codepoint = if keyval & 0xff00_0000 == 0x0100_0000 {
+        Some(keyval & 0x00ff_ffff)
+    } else if (0x20..=0x7e).contains(&keyval) || (0xa0..=0xff).contains(&keyval) {
+        Some(keyval)
+    } else {
+        None
+    };
+    codepoint
+        .and_then(char::from_u32)
+        .filter(|c| !c.is_control() && !('\u{f700}'..='\u{f8ff}').contains(c))
+}
+
+fn prepare_sdl_replay(
+    typed: &Mutex<TypedBuffer>,
+    output: &mut String,
+    queued: &[(u32, u32, u32)],
+) -> Vec<bool> {
+    let mut emit = vec![true; queued.len()];
+    let mut characters = Vec::new();
+    let mut output_editable = true;
+    for (index, &(keyval, _, state)) in queued.iter().enumerate() {
+        if state & (1 << 30) != 0 {
+            continue;
+        }
+        let plain = state & (4 | 8 | (1 << 26) | (1 << 28)) == 0;
+        let old = if plain && keyval == 0xff08 {
+            Some(typed.lock().unwrap().text().chars().count())
+        } else {
+            None
+        };
+        InputMethod::track_typed(typed, keyval, state);
+        if let Some(old) = old {
+            let removed = old.saturating_sub(typed.lock().unwrap().text().chars().count());
+            let available = characters.len()
+                + if output_editable {
+                    output.chars().count()
+                } else {
+                    0
+                };
+            if removed > 0 && removed <= available {
+                emit[index] = false;
+                for _ in 0..removed {
+                    if let Some(previous) = characters.pop() {
+                        emit[previous] = false;
+                    } else {
+                        output.pop();
+                    }
+                }
+                continue;
+            }
+        } else if plain && key_character(keyval).is_some() {
+            characters.push(index);
+            continue;
+        }
+        characters.clear();
+        output_editable = false;
+    }
+    emit
 }
 
 extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: i32) {
@@ -128,7 +208,46 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
         if let Some(running) = executions.running.get_mut(&callback.id) {
             if active && !running.cancelled {
                 if done != 0 {
-                    if let Some(text) = text.as_deref() {
+                    let mut sdl_emit = None;
+                    if let Some((base, pending)) = &running.sdl {
+                        let target = text
+                            .as_deref()
+                            .map(|text| format!("{}{text}", running.prefix))
+                            .unwrap_or_else(|| base.clone());
+                        let output =
+                            edit_plan(base, &target).and_then(|(scalars, _, replacement)| {
+                                replace_pending(pending, scalars, &replacement)
+                            });
+                        let (mut output, target) = match output {
+                            Some(output) => (output, target),
+                            None => (pending.clone(), base.clone()),
+                        };
+                        callback.typed.lock().unwrap().set(&target);
+                        sdl_emit = Some(prepare_sdl_replay(
+                            &callback.typed,
+                            &mut output,
+                            &running.queued,
+                        ));
+                        callback.sdl_preedit.lock().unwrap().clear();
+                        if let Ok(empty) = ibus_text("") {
+                            let _ = callback.connection.emit_signal(
+                                None::<&str>,
+                                callback.path.as_str(),
+                                "org.freedesktop.IBus.Engine",
+                                "UpdatePreeditText",
+                                &(empty, 0_u32, false, 0_u32),
+                            );
+                        }
+                        if let Ok(value) = ibus_text(&output) {
+                            let _ = callback.connection.emit_signal(
+                                None::<&str>,
+                                callback.path.as_str(),
+                                "org.freedesktop.IBus.Engine",
+                                "CommitText",
+                                &(value,),
+                            );
+                        }
+                    } else if let Some(text) = text.as_deref() {
                         if running.synthetic && !running.terminal_delete {
                             for _ in 0..running.characters {
                                 for state in [0_u32, 1 << 30] {
@@ -174,9 +293,31 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
                             &(value, 0_u32, false, 0_u32),
                         );
                     }
-                    for key in &running.queued {
-                        if key.2 & (1 << 30) == 0 {
+                    for (index, key) in running.queued.iter().enumerate() {
+                        if running.sdl.is_none() && key.2 & (1 << 30) == 0 {
                             InputMethod::track_typed(&callback.typed, key.0, key.2);
+                        }
+                        if running.sdl.is_some() {
+                            if !sdl_emit.as_ref().unwrap()[index] {
+                                continue;
+                            }
+                            if key.2 & (1 << 30) != 0 {
+                                continue;
+                            }
+                            if key.2 & (4 | 8 | (1 << 26) | (1 << 28)) == 0 {
+                                if let Some(c) = key_character(key.0) {
+                                    if let Ok(value) = ibus_text(&c.to_string()) {
+                                        let _ = callback.connection.emit_signal(
+                                            None::<&str>,
+                                            callback.path.as_str(),
+                                            "org.freedesktop.IBus.Engine",
+                                            "CommitText",
+                                            &(value,),
+                                        );
+                                    }
+                                    continue;
+                                }
+                            }
                         }
                         let _ = callback.connection.emit_signal(
                             None::<&str>,
@@ -187,8 +328,18 @@ extern "C" fn execute_callback(context: *mut c_void, text: *const c_char, done: 
                         );
                     }
                 } else if let Some(text) = text.as_deref() {
-                    if let Ok(value) = ibus_text(text) {
-                        let cursor = text.chars().count() as u32;
+                    let output = if let Some((base, pending)) = &running.sdl {
+                        let target = format!("{}{text}", running.prefix);
+                        edit_plan(base, &target)
+                            .and_then(|(scalars, _, replacement)| {
+                                replace_pending(pending, scalars, &replacement)
+                            })
+                            .unwrap_or_else(|| pending.clone())
+                    } else {
+                        text.to_owned()
+                    };
+                    if let Ok(value) = ibus_text(&output) {
+                        let cursor = output.chars().count() as u32;
                         let _ = callback.connection.emit_signal(
                             None::<&str>,
                             callback.path.as_str(),
@@ -290,7 +441,53 @@ async fn show_selection(emitter: &SignalEmitter<'_>, selection: &Selection) -> z
 }
 
 impl InputMethod {
+    async fn flush_sdl_preedit(&self, emitter: &SignalEmitter<'_>) {
+        let pending = std::mem::take(&mut *self.sdl_preedit.lock().unwrap());
+        #[cfg(test)]
+        {
+            let hook = FOCUS_FLUSH_HOOK.lock().unwrap().take();
+            if let Some((entered, resume)) = hook {
+                entered.send(()).unwrap();
+                resume.recv().await.unwrap();
+            }
+        }
+        if !pending.is_empty() {
+            if let Ok(empty) = ibus_text("") {
+                let _ = Self::update_preedit_text(emitter, empty, 0, false, 0).await;
+            }
+            if let Ok(value) = ibus_text(&pending) {
+                let _ = Self::commit_text(emitter, value).await;
+            }
+        }
+    }
+
+    async fn replace_sdl_preedit(
+        &self,
+        emitter: &SignalEmitter<'_>,
+        scalars: u32,
+        replacement: &str,
+    ) -> Option<String> {
+        if !*self.sdl_client.lock().unwrap() {
+            return None;
+        }
+        let pending = self.sdl_preedit.lock().unwrap().clone();
+        let Some(result) = replace_pending(&pending, scalars, replacement) else {
+            self.flush_sdl_preedit(emitter).await;
+            return None;
+        };
+        self.sdl_preedit.lock().unwrap().clear();
+        if let Ok(empty) = ibus_text("") {
+            let _ = Self::update_preedit_text(emitter, empty, 0, false, 0).await;
+        }
+        Some(result)
+    }
+
     async fn finish_context(&self, emitter: &SignalEmitter<'_>) {
+        let sdl_client = *self.sdl_client.lock().unwrap();
+        if sdl_client {
+            self.cancel_execution();
+            self.flush_sdl_preedit(emitter).await;
+        }
         *self.surrounding.lock().unwrap() = None;
         self.typed.lock().unwrap().reset();
         self.cancel_execution();
@@ -333,17 +530,7 @@ impl InputMethod {
             0xff08 => typed.remove(),
             0xff09 | 0xff0d | 0xff8d | 0xff1b | 0xff50..=0xff57 | 0xffff => typed.reset(),
             _ => {
-                let codepoint = if keyval & 0xff00_0000 == 0x0100_0000 {
-                    Some(keyval & 0x00ff_ffff)
-                } else if (0x20..=0x7e).contains(&keyval) || (0xa0..=0xff).contains(&keyval) {
-                    Some(keyval)
-                } else {
-                    None
-                };
-                if let Some(c) = codepoint
-                    .and_then(char::from_u32)
-                    .filter(|c| !c.is_control() && !('\u{f700}'..='\u{f8ff}').contains(c))
-                {
+                if let Some(c) = key_character(keyval) {
                     typed.append(&c.to_string());
                 } else {
                     typed.reset();
@@ -443,6 +630,7 @@ impl InputMethod {
         state: u32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> bool {
+        let _guard = self.operation_gate.lock().await;
         let pending = {
             let mut executions = self.executions.lock().unwrap();
             if let Some(id) = executions.active {
@@ -452,29 +640,56 @@ impl InputMethod {
                         || state & (1 << 26) != 0);
                 let running = executions.running.get_mut(&id).unwrap();
                 if cancel {
+                    let sdl = running.sdl.is_some();
                     running.cancelled = true;
                     let queued = std::mem::take(&mut running.queued);
                     if let Some(handle) = &running.handle {
                         handle.cancel();
                     }
                     executions.active = None;
-                    Some((true, state & (1 << 26) == 0, queued))
+                    Some((true, state & (1 << 26) == 0, queued, sdl))
                 } else {
                     running.queued.push((keyval, keycode, state));
-                    Some((false, true, Vec::new()))
+                    Some((false, true, Vec::new(), false))
                 }
             } else {
                 None
             }
         };
-        if let Some((cancelled, handled, queued)) = pending {
+        if let Some((cancelled, handled, queued, sdl)) = pending {
             if cancelled {
+                let sdl_emit = if sdl {
+                    Some(prepare_sdl_replay(
+                        &self.typed,
+                        &mut self.sdl_preedit.lock().unwrap(),
+                        &queued,
+                    ))
+                } else {
+                    None
+                };
+                self.flush_sdl_preedit(&emitter).await;
                 if let Ok(value) = ibus_text("") {
                     let _ = Self::update_preedit_text(&emitter, value, 0, false, 0).await;
                 }
-                for (keyval, keycode, state) in queued {
-                    if state & (1 << 30) == 0 {
+                for (index, (keyval, keycode, state)) in queued.into_iter().enumerate() {
+                    if !sdl && state & (1 << 30) == 0 {
                         Self::track_typed(&self.typed, keyval, state);
+                    }
+                    if sdl {
+                        if !sdl_emit.as_ref().unwrap()[index] {
+                            continue;
+                        }
+                        if state & (1 << 30) != 0 {
+                            continue;
+                        }
+                        if state & (4 | 8 | (1 << 26) | (1 << 28)) == 0 {
+                            if let Some(c) = key_character(keyval) {
+                                if let Ok(value) = ibus_text(&c.to_string()) {
+                                    let _ = Self::commit_text(&emitter, value).await;
+                                }
+                                continue;
+                            }
+                        }
                     }
                     let _ = Self::forward_key_event(&emitter, keyval, keycode, state).await;
                 }
@@ -660,6 +875,70 @@ impl InputMethod {
                     (false, 0xff0d | 0xff8d) | (true, 0x6d | 0x6c)
                 );
         }
+        let sdl_client = *self.sdl_client.lock().unwrap();
+        if sdl_client {
+            let modifiers = state & (4 | 8 | (1 << 26) | (1 << 28)) != 0;
+            if !modifiers && keyval == 0xff08 {
+                let old = self.typed.lock().unwrap().text();
+                self.track_key(keyval, state);
+                let new = self.typed.lock().unwrap().text();
+                let removed = old.chars().count().saturating_sub(new.chars().count());
+                let pending = {
+                    let mut pending = self.sdl_preedit.lock().unwrap();
+                    let count = pending.chars().count();
+                    if removed == 0 || removed > count {
+                        None
+                    } else {
+                        *pending = pending.chars().take(count - removed).collect();
+                        Some(pending.clone())
+                    }
+                };
+                let Some(pending) = pending else {
+                    self.flush_sdl_preedit(&emitter).await;
+                    return false;
+                };
+                if let Ok(value) = ibus_text(&pending) {
+                    let _ = Self::update_preedit_text(
+                        &emitter,
+                        value,
+                        pending.chars().count() as u32,
+                        !pending.is_empty(),
+                        0,
+                    )
+                    .await;
+                }
+                return true;
+            }
+            if !modifiers {
+                if let Some(c) = key_character(keyval).filter(|c| {
+                    *c != ' '
+                        || (keyval == 0x20 && !self.sdl_preedit.lock().unwrap().ends_with('/'))
+                }) {
+                    let pending = {
+                        let mut pending = self.sdl_preedit.lock().unwrap();
+                        pending.push(c);
+                        pending.clone()
+                    };
+                    self.track_key(keyval, state);
+                    if let Ok(value) = ibus_text(&pending) {
+                        let _ = Self::update_preedit_text(
+                            &emitter,
+                            value,
+                            pending.chars().count() as u32,
+                            true,
+                            0,
+                        )
+                        .await;
+                    }
+                    return true;
+                }
+            }
+            if modifiers || keyval != 0x20 || !self.sdl_preedit.lock().unwrap().ends_with('/') {
+                self.flush_sdl_preedit(&emitter).await;
+                self.track_key(keyval, state);
+                return false;
+            }
+        }
         if keyval != 0x20 || state & ((1 << 30) | 0x0d) != 0 {
             self.track_key(keyval, state);
             return false;
@@ -692,12 +971,14 @@ impl InputMethod {
         let terminal_delete = synthetic && *self.content_purpose.lock().unwrap() == 10;
         let app = self.app.lock().unwrap().clone();
         let Some(result) = Engine::for_app(app.as_deref()).run(&line) else {
+            self.flush_sdl_preedit(&emitter).await;
             return false;
         };
         if result.kind == 1 {
             return true;
         }
         if result.kind != 2 {
+            self.flush_sdl_preedit(&emitter).await;
             self.track_key(keyval, state);
             return false;
         }
@@ -709,23 +990,47 @@ impl InputMethod {
             let Some((source_scalars, source_characters, _)) = edit_plan(source, "") else {
                 return false;
             };
+            let pending = self.sdl_preedit.lock().unwrap().clone();
+            let sdl = if sdl_client {
+                replace_pending(&pending, scalars, &replacement)
+                    .filter(|text| source_scalars as usize <= text.chars().count())
+                    .map(|text| (base.clone(), text))
+            } else {
+                None
+            };
+            if let Some((_, text)) = &sdl {
+                *self.sdl_preedit.lock().unwrap() = text.clone();
+                if let Ok(value) = ibus_text(text) {
+                    let _ = Self::update_preedit_text(
+                        &emitter,
+                        value,
+                        text.chars().count() as u32,
+                        true,
+                        0,
+                    )
+                    .await;
+                }
+            } else {
+                self.flush_sdl_preedit(&emitter).await;
+            }
             let Ok(prefix_value) =
                 ibus_text(&commit_payload(&replacement, characters, terminal_delete))
             else {
                 return false;
             };
-            if Self::delete_before(
-                &emitter,
-                if synthetic { characters } else { scalars },
-                synthetic,
-                terminal_delete,
-            )
-            .await
-            .is_err()
+            if sdl.is_none()
+                && Self::delete_before(
+                    &emitter,
+                    if synthetic { characters } else { scalars },
+                    synthetic,
+                    terminal_delete,
+                )
+                .await
+                .is_err()
             {
                 return false;
             }
-            if Self::commit_text(&emitter, prefix_value).await.is_err() {
+            if sdl.is_none() && Self::commit_text(&emitter, prefix_value).await.is_err() {
                 return false;
             }
             *self.surrounding.lock().unwrap() = None;
@@ -746,6 +1051,7 @@ impl InputMethod {
                         terminal_delete,
                         queued: Vec::new(),
                         cancelled: false,
+                        sdl,
                     },
                 );
                 id
@@ -755,6 +1061,7 @@ impl InputMethod {
                 path: emitter.path().to_owned().into(),
                 executions: self.executions.clone(),
                 typed: self.typed.clone(),
+                sdl_preedit: self.sdl_preedit.clone(),
                 id,
             });
             let context = Box::into_raw(callback);
@@ -787,8 +1094,28 @@ impl InputMethod {
             return true;
         }
         if result.needs_kanji && dictionary_path().is_none() {
+            self.flush_sdl_preedit(&emitter).await;
             self.track_key(keyval, state);
             return false;
+        }
+        macro_rules! delete_and_commit {
+            ($sdl:expr, $scalars:expr, $characters:expr, $value:expr) => {
+                if $sdl.is_none()
+                    && Self::delete_before(
+                        &emitter,
+                        if synthetic { $characters } else { $scalars },
+                        synthetic,
+                        terminal_delete,
+                    )
+                    .await
+                    .is_err()
+                {
+                    return false;
+                }
+                if Self::commit_text(&emitter, $value).await.is_err() {
+                    return false;
+                }
+            };
         }
         if result.selection_count > 0 {
             let selection_count = result.selection_count as usize;
@@ -798,8 +1125,13 @@ impl InputMethod {
             let Some((scalars, characters, replacement)) = edit_plan(&line, &prefix_text) else {
                 return false;
             };
-            let Ok(prefix) = ibus_text(&commit_payload(&replacement, characters, terminal_delete))
-            else {
+            let sdl = self
+                .replace_sdl_preedit(&emitter, scalars, &replacement)
+                .await;
+            let payload = sdl
+                .clone()
+                .unwrap_or_else(|| commit_payload(&replacement, characters, terminal_delete));
+            let Ok(prefix) = ibus_text(&payload) else {
                 return false;
             };
             let selection = Selection {
@@ -807,20 +1139,7 @@ impl InputMethod {
                 choices: vec![0; selection_count],
                 current: 0,
             };
-            if Self::delete_before(
-                &emitter,
-                if synthetic { characters } else { scalars },
-                synthetic,
-                terminal_delete,
-            )
-            .await
-            .is_err()
-            {
-                return false;
-            }
-            if Self::commit_text(&emitter, prefix).await.is_err() {
-                return false;
-            }
+            delete_and_commit!(sdl, scalars, characters, prefix);
             if show_selection(&emitter, &selection).await.is_err() {
                 return false;
             }
@@ -842,28 +1161,20 @@ impl InputMethod {
             else {
                 return false;
             };
-            let Ok(prefix) = ibus_text(&commit_payload(&replacement, characters, terminal_delete))
-            else {
+            let sdl = self
+                .replace_sdl_preedit(&emitter, scalars, &replacement)
+                .await;
+            let payload = sdl
+                .clone()
+                .unwrap_or_else(|| commit_payload(&replacement, characters, terminal_delete));
+            let Ok(prefix) = ibus_text(&payload) else {
                 return false;
             };
             let Ok(preedit) = ibus_text_with_segments(&conversion.text(), &conversion.segments())
             else {
                 return false;
             };
-            if Self::delete_before(
-                &emitter,
-                if synthetic { characters } else { scalars },
-                synthetic,
-                terminal_delete,
-            )
-            .await
-            .is_err()
-            {
-                return false;
-            }
-            if Self::commit_text(&emitter, prefix).await.is_err() {
-                return false;
-            }
+            delete_and_commit!(sdl, scalars, characters, prefix);
             if Self::update_preedit_text(&emitter, preedit, 0, true, 1)
                 .await
                 .is_err()
@@ -884,30 +1195,23 @@ impl InputMethod {
         let Some((scalars, characters, replacement)) = edit_plan(&line, converted) else {
             return false;
         };
-        let Ok(value) = ibus_text(&commit_payload(&replacement, characters, terminal_delete))
-        else {
+        let sdl = self
+            .replace_sdl_preedit(&emitter, scalars, &replacement)
+            .await;
+        let payload = sdl
+            .clone()
+            .unwrap_or_else(|| commit_payload(&replacement, characters, terminal_delete));
+        let Ok(value) = ibus_text(&payload) else {
             return false;
         };
-        if Self::delete_before(
-            &emitter,
-            if synthetic { characters } else { scalars },
-            synthetic,
-            terminal_delete,
-        )
-        .await
-        .is_err()
-        {
-            return false;
-        }
-        if Self::commit_text(&emitter, value).await.is_err() {
-            return false;
-        }
+        delete_and_commit!(sdl, scalars, characters, value);
         *self.surrounding.lock().unwrap() = None;
         self.typed.lock().unwrap().set(converted);
         true
     }
 
     async fn focus_in(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         let _ = Self::require_surrounding_text(&emitter).await;
     }
     async fn focus_in_id(
@@ -916,15 +1220,20 @@ impl InputMethod {
         client: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) {
+        let _guard = self.operation_gate.lock().await;
+        *self.sdl_client.lock().unwrap() = client == "SDL2_Application";
         *self.app.lock().unwrap() = client.split_once(':').map(|(_, app)| app.to_owned());
         let _ = Self::require_surrounding_text(&emitter).await;
     }
     async fn focus_out(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         self.finish_context(&emitter).await;
     }
     async fn focus_out_id(&self, _path: &str, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         self.finish_context(&emitter).await;
         *self.app.lock().unwrap() = None;
+        *self.sdl_client.lock().unwrap() = false;
     }
     #[zbus(property)]
     fn focus_id(&self) -> bool {
@@ -937,6 +1246,7 @@ impl InputMethod {
     fn enable(&self) {}
     fn disable(&self) {}
     async fn reset(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        let _guard = self.operation_gate.lock().await;
         self.finish_context(&emitter).await;
     }
     fn set_surrounding_text(&self, text: OwnedValue, cursor: u32, anchor: u32) {
