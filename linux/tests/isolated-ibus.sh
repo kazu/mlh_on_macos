@@ -108,7 +108,7 @@ gdbus call --address "$address" --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.ListNames
 gdbus call --address "$address" --dest org.freedesktop.IBus \
     --object-path /org/freedesktop/IBus --method org.freedesktop.IBus.SetGlobalEngine mlh
-IBUS_TEST_ADDRESS="$address" cargo test --manifest-path "$MLH_MANIFEST" --test real_ibus -- --ignored
+IBUS_TEST_ADDRESS="$address" cargo test --manifest-path "$MLH_MANIFEST" --test real_ibus -- --ignored --test-threads=1
 if [ -n "${MLH_GTK_CLIENT:-}" ]; then
     if [ -z "${MLH_VTE_ONLY:-}" ]; then
     "$MLH_GTK_CLIENT" > "$work/gtk.log" 2>&1 &

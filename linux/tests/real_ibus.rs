@@ -6,6 +6,161 @@ use zbus::{
 
 #[test]
 #[ignore = "requires the isolated IBus daemon from isolated-ibus.sh"]
+fn converts_sdl2_input_context() {
+    let address = std::env::var("IBUS_TEST_ADDRESS").unwrap();
+    let connection = Builder::address(mlh_ibus::ibus_address(&address).unwrap())
+        .unwrap()
+        .build()
+        .unwrap();
+    let bus = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus",
+        "/org/freedesktop/IBus",
+        "org.freedesktop.IBus",
+    )
+    .unwrap();
+    let path: OwnedObjectPath = bus
+        .call("CreateInputContext", &("SDL2_Application",))
+        .unwrap();
+    let context = Proxy::new(
+        &connection,
+        "org.freedesktop.IBus",
+        path,
+        "org.freedesktop.IBus.InputContext",
+    )
+    .unwrap();
+    context
+        .call::<_, _, ()>("SetCapabilities", &(0x09_u32,))
+        .unwrap();
+    context.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let mut preedits = context.receive_signal("UpdatePreeditText").unwrap();
+    for key in b"nihongo/" {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+                .unwrap()
+        );
+        preedits.next().unwrap();
+    }
+    assert!(
+        context
+            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
+    loop {
+        let message = preedits.next().unwrap();
+        let (value, _, visible): (OwnedValue, u32, bool) = message.body().deserialize().unwrap();
+        if visible {
+            let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+                panic!("expected IBusText")
+            };
+            assert_eq!(value.fields()[2], Value::new("日本語"));
+            break;
+        }
+    }
+    let mut commits = context.receive_signal("CommitText").unwrap();
+    assert!(
+        context
+            .call::<_, _, bool>("ProcessKeyEvent", &(0xff0d_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
+    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("日本語"));
+    context.call::<_, _, ()>("FocusOut", &()).unwrap();
+    context.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let mut commits = context.receive_signal("CommitText").unwrap();
+    for key in b"hello3x/" {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+                .unwrap()
+        );
+    }
+    assert!(
+        context
+            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
+    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
+    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+        panic!("expected IBusText")
+    };
+    assert_eq!(value.fields()[2], Value::new("ABC"));
+    context.call::<_, _, ()>("FocusOut", &()).unwrap();
+    context.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let mut commits = context.receive_signal("CommitText").unwrap();
+    for key in b"hello7x/" {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+                .unwrap()
+        );
+    }
+    assert!(
+        context
+            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
+    for state in [0_u32, 1 << 30] {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
+                .unwrap()
+        );
+    }
+    let release = std::path::PathBuf::from(std::env::var_os("XDG_CONFIG_HOME").unwrap())
+        .join("mlh/queue-release");
+    std::fs::write(&release, "").unwrap();
+    for expected in ["HELLO", "q"] {
+        let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
+        let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+            panic!("expected IBusText")
+        };
+        assert_eq!(value.fields()[2], Value::new(expected));
+    }
+    std::fs::remove_file(release).unwrap();
+    context.call::<_, _, ()>("FocusOut", &()).unwrap();
+    context.call::<_, _, ()>("FocusIn", &()).unwrap();
+    let mut commits = context.receive_signal("CommitText").unwrap();
+    for key in b"hello2x/" {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
+                .unwrap()
+        );
+    }
+    assert!(
+        context
+            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
+    for state in [0_u32, 1 << 30] {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
+                .unwrap()
+        );
+    }
+    assert!(
+        context
+            .call::<_, _, bool>("ProcessKeyEvent", &(0xff1b_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
+    for expected in ["hello", "q"] {
+        let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
+        let Value::Structure(value) = Value::try_from(&value).unwrap() else {
+            panic!("expected IBusText")
+        };
+        assert_eq!(value.fields()[2], Value::new(expected));
+    }
+    context.call::<_, _, ()>("FocusOut", &()).unwrap();
+}
+
+#[test]
+#[ignore = "requires the isolated IBus daemon from isolated-ibus.sh"]
 fn converts_through_ibus_input_context() {
     let address = std::env::var("IBUS_TEST_ADDRESS").unwrap();
     let connection = Builder::address(mlh_ibus::ibus_address(&address).unwrap())
