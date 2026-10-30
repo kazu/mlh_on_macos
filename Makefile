@@ -24,6 +24,10 @@ STRINGS      := $(patsubst Resources/%,$(CONTENTS)/Resources/%,$(wildcard Resour
 
 SWIFT_BUILD  := swift build -c release
 BIN_DIR      := .build/release
+# CPUs to build the executable for, joined with lipo (`ARCHS="arm64 x86_64"`
+# for a universal app); this Mac's by default.
+ARCHS        ?= $(shell uname -m)
+DMG          := $(BUILD_DIR)/$(APP_NAME).dmg
 # Tests use @testable, so they get their own build directory with testing on.
 TEST_BUILD   := $(SWIFT_BUILD) -Xswiftc -enable-testing --build-path .build/test
 TEST_BIN     := .build/test/release/mlh-tests
@@ -43,7 +47,7 @@ INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 SIGN_NAME    := MLH Local Code Signing
 SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
 
-.PHONY: all build executable test install install-system uninstall clean signing-identity zenz-model
+.PHONY: all build executable test install install-system dmg uninstall clean signing-identity zenz-model
 
 all: build
 
@@ -54,9 +58,9 @@ build: executable $(PLIST) $(ICON) $(STRINGS)
 
 # SwiftPM tracks the sources itself, so this always runs it.
 executable:
-	$(SWIFT_BUILD) --product $(APP_NAME)
 	@mkdir -p "$(dir $(EXECUTABLE))" "$(DICTIONARY)"
-	cp "$(BIN_DIR)/$(APP_NAME)" "$(EXECUTABLE)"
+	for arch in $(ARCHS); do $(SWIFT_BUILD) --arch $$arch --product $(APP_NAME) || exit 1; done
+	lipo -create $(foreach arch,$(ARCHS),".build/$(arch)-apple-macosx/release/$(APP_NAME)") -output "$(EXECUTABLE)"
 	rsync -a --delete "$(AZOOKEY_DICT)/" "$(DICTIONARY)/"
 	@mkdir -p "$(LICENSES)"
 	install -m 644 "$(AZOOKEY_DIR)/LICENSE" "$(LICENSES)/AzooKeyKanaKanjiConverter.txt"
@@ -104,6 +108,14 @@ install-system: build
 	sudo cp -R "$(APP)" "$(SYSTEM_INSTALLED)"
 	sudo chown -R root:wheel "$(SYSTEM_INSTALLED)"
 	swift scripts/register.swift "$(SYSTEM_INSTALLED)"
+
+# A disk image with the app and a link to /Library/Input Methods to drag it to.
+dmg: build
+	rm -rf "$(BUILD_DIR)/dmg" "$(DMG)"
+	ditto "$(APP)" "$(BUILD_DIR)/dmg/$(notdir $(APP))"
+	ln -s "/Library/Input Methods" "$(BUILD_DIR)/dmg/Input Methods"
+	hdiutil create -volname "$(APP_NAME)" -srcfolder "$(BUILD_DIR)/dmg" -format UDZO "$(DMG)"
+	rm -rf "$(BUILD_DIR)/dmg"
 
 uninstall:
 	-killall $(APP_NAME) 2>/dev/null

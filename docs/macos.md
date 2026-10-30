@@ -11,6 +11,29 @@ make clean      # build/ と .build/（SwiftPM の作業ディレクトリ）を
 `make install` は実行中の mlh プロセスを終了し（`killall mlh`）、アプリを置き換えたうえで
 `scripts/register.swift` で `TISRegisterInputSource` / `TISEnableInputSource` を呼び出します。
 
+## ディスクイメージ（dmg）から入れる
+
+ビルドせずに入れる場合は、[リリース](https://github.com/kazu/mlh_on_macos/releases)の
+`mlh-<バージョン>.dmg` を使います。Apple Silicon と Intel の両方で動きます。
+
+1. dmg を開き、`mlh.app` を `Input Methods`（`/Library/Input Methods` へのリンク）にドラッグする（管理者のパスワードが要ります）
+2. dmg の mlh は Apple の公証を受けていないので、ダウンロードの印（quarantine）を外す
+
+   ```sh
+   sudo xattr -dr com.apple.quarantine "/Library/Input Methods/mlh.app"
+   ```
+
+3. 一度ログアウトしてログインし直し、下の「入力ソースへの追加」と「アクセシビリティの許可」を行う
+
+Zenzai のモデルは dmg に入っていません。使う場合は次の 2 行でダウンロードします（Bash、zsh、Nushell 共通）。
+
+```sh
+mkdir -p ~/Library/Application\ Support/mlh
+curl -fL -o ~/Library/Application\ Support/mlh/zenz.gguf https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf
+```
+
+dmg は `make dmg` で作れます（`build/mlh.dmg`）。`ARCHS="arm64 x86_64"` を付けると両方の CPU 向けにビルドして 1 つにまとめます。
+
 ## App Store 版のアプリ（Slack など）でも使う場合
 
 サンドボックスで動く App Store 版のアプリからは、`~/Library/Input Methods` に置いた入力メソッドが
