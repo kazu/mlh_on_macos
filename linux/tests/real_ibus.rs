@@ -1,8 +1,31 @@
+mod support;
+
 use std::collections::HashMap;
+use support::assert_commit_text;
 use zbus::{
     blocking::{Proxy, connection::Builder},
     zvariant::{OwnedObjectPath, OwnedValue, Value},
 };
+
+fn send_command(context: &Proxy<'_>, command: &[u8]) {
+    for key in command.iter().copied().chain([b' ']) {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(key), 0_u32, 0_u32))
+                .unwrap()
+        );
+    }
+}
+
+fn send_q_press_and_release(context: &Proxy<'_>) {
+    for state in [0_u32, 1 << 30] {
+        assert!(
+            context
+                .call::<_, _, bool>("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
+                .unwrap()
+        );
+    }
+}
 
 #[test]
 #[ignore = "requires the isolated IBus daemon from isolated-ibus.sh"]
@@ -64,97 +87,36 @@ fn converts_sdl2_input_context() {
             .call::<_, _, bool>("ProcessKeyEvent", &(0xff0d_u32, 0_u32, 0_u32))
             .unwrap()
     );
-    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-        panic!("expected IBusText")
-    };
-    assert_eq!(value.fields()[2], Value::new("日本語"));
+    assert_commit_text(commits.next().unwrap(), "日本語");
     context.call::<_, _, ()>("FocusOut", &()).unwrap();
     context.call::<_, _, ()>("FocusIn", &()).unwrap();
     let mut commits = context.receive_signal("CommitText").unwrap();
-    for key in b"hello3x/" {
-        assert!(
-            context
-                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
-                .unwrap()
-        );
-    }
-    assert!(
-        context
-            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
-            .unwrap()
-    );
-    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-        panic!("expected IBusText")
-    };
-    assert_eq!(value.fields()[2], Value::new("ABC"));
+    send_command(&context, b"hello3x/");
+    assert_commit_text(commits.next().unwrap(), "ABC");
     context.call::<_, _, ()>("FocusOut", &()).unwrap();
     context.call::<_, _, ()>("FocusIn", &()).unwrap();
     let mut commits = context.receive_signal("CommitText").unwrap();
-    for key in b"hello7x/" {
-        assert!(
-            context
-                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
-                .unwrap()
-        );
-    }
-    assert!(
-        context
-            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
-            .unwrap()
-    );
-    for state in [0_u32, 1 << 30] {
-        assert!(
-            context
-                .call::<_, _, bool>("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
-                .unwrap()
-        );
-    }
+    send_command(&context, b"hello7x/");
+    send_q_press_and_release(&context);
     let release = std::path::PathBuf::from(std::env::var_os("XDG_CONFIG_HOME").unwrap())
         .join("mlh/queue-release");
     std::fs::write(&release, "").unwrap();
     for expected in ["HELLO", "q"] {
-        let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-        let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-            panic!("expected IBusText")
-        };
-        assert_eq!(value.fields()[2], Value::new(expected));
+        assert_commit_text(commits.next().unwrap(), expected);
     }
     std::fs::remove_file(release).unwrap();
     context.call::<_, _, ()>("FocusOut", &()).unwrap();
     context.call::<_, _, ()>("FocusIn", &()).unwrap();
     let mut commits = context.receive_signal("CommitText").unwrap();
-    for key in b"hello2x/" {
-        assert!(
-            context
-                .call::<_, _, bool>("ProcessKeyEvent", &(u32::from(*key), 0_u32, 0_u32))
-                .unwrap()
-        );
-    }
-    assert!(
-        context
-            .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
-            .unwrap()
-    );
-    for state in [0_u32, 1 << 30] {
-        assert!(
-            context
-                .call::<_, _, bool>("ProcessKeyEvent", &(0x71_u32, 24_u32, state))
-                .unwrap()
-        );
-    }
+    send_command(&context, b"hello2x/");
+    send_q_press_and_release(&context);
     assert!(
         context
             .call::<_, _, bool>("ProcessKeyEvent", &(0xff1b_u32, 0_u32, 0_u32))
             .unwrap()
     );
     for expected in ["hello", "q"] {
-        let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-        let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-            panic!("expected IBusText")
-        };
-        assert_eq!(value.fields()[2], Value::new(expected));
+        assert_commit_text(commits.next().unwrap(), expected);
     }
     context.call::<_, _, ()>("FocusOut", &()).unwrap();
 }

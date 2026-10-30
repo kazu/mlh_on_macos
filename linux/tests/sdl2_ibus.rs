@@ -1,7 +1,26 @@
+mod support;
+
+use support::assert_commit_text;
 use zbus::{
     blocking::{Connection, Proxy, connection::Builder},
-    zvariant::{OwnedObjectPath, OwnedValue, Value},
+    zvariant::{OwnedObjectPath, OwnedValue},
 };
+
+fn enter_preedit_keys(
+    engine: &Proxy<'_>,
+    preedits: &mut zbus::blocking::proxy::SignalIterator<'_>,
+    keys: impl IntoIterator<Item = u32>,
+) {
+    for key in keys {
+        assert!(
+            engine
+                .call::<_, _, bool>("ProcessKeyEvent", &(key, 0_u32, 0_u32))
+                .unwrap(),
+            "{key} must remain in preedit"
+        );
+        preedits.next().unwrap();
+    }
+}
 
 #[test]
 fn converts_sdl2_preedit_without_leaving_romaji() {
@@ -45,13 +64,7 @@ fn converts_sdl2_preedit_without_leaving_romaji() {
             .call::<_, _, bool>("ProcessKeyEvent", &(0x01000020_u32, 0_u32, 0_u32))
             .unwrap()
     );
-    for c in "nihongof/".chars() {
-        let handled: bool = engine
-            .call("ProcessKeyEvent", &(c as u32, 0_u32, 0_u32))
-            .unwrap();
-        assert!(handled, "{c} must remain in preedit");
-        preedits.next().unwrap();
-    }
+    enter_preedit_keys(&engine, &mut preedits, "nihongof/".chars().map(u32::from));
     assert!(
         engine
             .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
@@ -60,21 +73,9 @@ fn converts_sdl2_preedit_without_leaving_romaji() {
     let cleared = preedits.next().unwrap();
     let (_, _, visible, _): (OwnedValue, u32, bool, u32) = cleared.body().deserialize().unwrap();
     assert!(!visible);
-    let message = commits.next().unwrap();
-    let (value,): (OwnedValue,) = message.body().deserialize().unwrap();
-    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-        panic!("expected IBusText")
-    };
-    assert_eq!(value.fields()[2], Value::new("にほんご"));
+    assert_commit_text(commits.next().unwrap(), "にほんご");
 
-    for c in "abc".chars() {
-        assert!(
-            engine
-                .call::<_, _, bool>("ProcessKeyEvent", &(c as u32, 0_u32, 0_u32))
-                .unwrap()
-        );
-        preedits.next().unwrap();
-    }
+    enter_preedit_keys(&engine, &mut preedits, "abc".chars().map(u32::from));
     assert!(
         engine
             .call::<_, _, bool>("ProcessKeyEvent", &(0xff08_u32, 0_u32, 0_u32))
@@ -93,20 +94,9 @@ fn converts_sdl2_preedit_without_leaving_romaji() {
             .unwrap()
     );
     preedits.next().unwrap();
-    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-        panic!("expected IBusText")
-    };
-    assert_eq!(value.fields()[2], Value::new("ab "));
+    assert_commit_text(commits.next().unwrap(), "ab ");
 
-    for key in [0x61_u32, 0x01000301] {
-        assert!(
-            engine
-                .call::<_, _, bool>("ProcessKeyEvent", &(key, 0_u32, 0_u32))
-                .unwrap()
-        );
-        preedits.next().unwrap();
-    }
+    enter_preedit_keys(&engine, &mut preedits, [0x61_u32, 0x01000301]);
     assert!(
         engine
             .call::<_, _, bool>("ProcessKeyEvent", &(0xff08_u32, 0_u32, 0_u32))
@@ -116,42 +106,24 @@ fn converts_sdl2_preedit_without_leaving_romaji() {
         preedits.next().unwrap().body().deserialize().unwrap();
     assert!(!visible, "backspace removes the entire grapheme");
 
-    for c in "nihongof/".chars() {
-        assert!(
-            engine
-                .call::<_, _, bool>("ProcessKeyEvent", &(c as u32, 0_u32, 0_u32))
-                .unwrap()
-        );
-        preedits.next().unwrap();
-    }
+    enter_preedit_keys(&engine, &mut preedits, "nihongof/".chars().map(u32::from));
     assert!(
         engine
             .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
             .unwrap()
     );
     preedits.next().unwrap();
-    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-        panic!("expected IBusText")
-    };
-    assert_eq!(value.fields()[2], Value::new("にほんご"));
-    for c in "abc nihongof/".chars() {
-        assert!(
-            engine
-                .call::<_, _, bool>("ProcessKeyEvent", &(c as u32, 0_u32, 0_u32))
-                .unwrap()
-        );
-        preedits.next().unwrap();
-    }
+    assert_commit_text(commits.next().unwrap(), "にほんご");
+    enter_preedit_keys(
+        &engine,
+        &mut preedits,
+        "abc nihongof/".chars().map(u32::from),
+    );
     assert!(
         engine
             .call::<_, _, bool>("ProcessKeyEvent", &(0x20_u32, 0_u32, 0_u32))
             .unwrap()
     );
     preedits.next().unwrap();
-    let (value,): (OwnedValue,) = commits.next().unwrap().body().deserialize().unwrap();
-    let Value::Structure(value) = Value::try_from(&value).unwrap() else {
-        panic!("expected IBusText")
-    };
-    assert_eq!(value.fields()[2], Value::new("abc にほんご"));
+    assert_commit_text(commits.next().unwrap(), "abc にほんご");
 }
