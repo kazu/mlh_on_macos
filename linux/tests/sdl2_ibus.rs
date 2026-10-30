@@ -40,6 +40,11 @@ fn converts_sdl2_preedit_without_leaving_romaji() {
         .unwrap();
     let mut preedits = engine.receive_signal("UpdatePreeditText").unwrap();
     let mut commits = engine.receive_signal("CommitText").unwrap();
+    assert!(
+        !engine
+            .call::<_, _, bool>("ProcessKeyEvent", &(0x01000020_u32, 0_u32, 0_u32))
+            .unwrap()
+    );
     for c in "nihongof/".chars() {
         let handled: bool = engine
             .call("ProcessKeyEvent", &(c as u32, 0_u32, 0_u32))

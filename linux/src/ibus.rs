@@ -826,7 +826,10 @@ impl InputMethod {
                 return true;
             }
             if !modifiers {
-                if let Some(c) = key_character(keyval).filter(|c| *c != ' ') {
+                if let Some(c) = key_character(keyval).filter(|c| {
+                    *c != ' '
+                        || (keyval == 0x20 && !self.sdl_preedit.lock().unwrap().ends_with('/'))
+                }) {
                     let pending = {
                         let mut pending = self.sdl_preedit.lock().unwrap();
                         pending.push(c);
@@ -845,25 +848,6 @@ impl InputMethod {
                     }
                     return true;
                 }
-            }
-            if !modifiers && keyval == 0x20 && !self.sdl_preedit.lock().unwrap().ends_with('/') {
-                let pending = {
-                    let mut pending = self.sdl_preedit.lock().unwrap();
-                    pending.push(' ');
-                    pending.clone()
-                };
-                self.track_key(keyval, state);
-                if let Ok(value) = ibus_text(&pending) {
-                    let _ = Self::update_preedit_text(
-                        &emitter,
-                        value,
-                        pending.chars().count() as u32,
-                        true,
-                        0,
-                    )
-                    .await;
-                }
-                return true;
             }
             if modifiers || keyval != 0x20 || !self.sdl_preedit.lock().unwrap().ends_with('/') {
                 self.flush_sdl_preedit(&emitter).await;
@@ -1030,6 +1014,25 @@ impl InputMethod {
             self.track_key(keyval, state);
             return false;
         }
+        macro_rules! delete_and_commit {
+            ($sdl:expr, $scalars:expr, $characters:expr, $value:expr) => {
+                if $sdl.is_none()
+                    && Self::delete_before(
+                        &emitter,
+                        if synthetic { $characters } else { $scalars },
+                        synthetic,
+                        terminal_delete,
+                    )
+                    .await
+                    .is_err()
+                {
+                    return false;
+                }
+                if Self::commit_text(&emitter, $value).await.is_err() {
+                    return false;
+                }
+            };
+        }
         if result.selection_count > 0 {
             let selection_count = result.selection_count as usize;
             let Some(prefix_text) = result.selection_prefix() else {
@@ -1052,21 +1055,7 @@ impl InputMethod {
                 choices: vec![0; selection_count],
                 current: 0,
             };
-            if sdl.is_none()
-                && Self::delete_before(
-                    &emitter,
-                    if synthetic { characters } else { scalars },
-                    synthetic,
-                    terminal_delete,
-                )
-                .await
-                .is_err()
-            {
-                return false;
-            }
-            if Self::commit_text(&emitter, prefix).await.is_err() {
-                return false;
-            }
+            delete_and_commit!(sdl, scalars, characters, prefix);
             if show_selection(&emitter, &selection).await.is_err() {
                 return false;
             }
@@ -1101,21 +1090,7 @@ impl InputMethod {
             else {
                 return false;
             };
-            if sdl.is_none()
-                && Self::delete_before(
-                    &emitter,
-                    if synthetic { characters } else { scalars },
-                    synthetic,
-                    terminal_delete,
-                )
-                .await
-                .is_err()
-            {
-                return false;
-            }
-            if Self::commit_text(&emitter, prefix).await.is_err() {
-                return false;
-            }
+            delete_and_commit!(sdl, scalars, characters, prefix);
             if Self::update_preedit_text(&emitter, preedit, 0, true, 1)
                 .await
                 .is_err()
@@ -1145,21 +1120,7 @@ impl InputMethod {
         let Ok(value) = ibus_text(&payload) else {
             return false;
         };
-        if sdl.is_none()
-            && Self::delete_before(
-                &emitter,
-                if synthetic { characters } else { scalars },
-                synthetic,
-                terminal_delete,
-            )
-            .await
-            .is_err()
-        {
-            return false;
-        }
-        if Self::commit_text(&emitter, value).await.is_err() {
-            return false;
-        }
+        delete_and_commit!(sdl, scalars, characters, value);
         *self.surrounding.lock().unwrap() = None;
         self.typed.lock().unwrap().set(converted);
         true
