@@ -21,42 +21,48 @@ Linux では IBus を使います。
   日本語のほかにも中国語（ピンイン・注音）、韓国語（ハングル）、タイ語、ギリシャ文字、アイヌ語のカナなど、
   多くの言語・文字を扱えました。それ以外の言語・文字への対応はこれからです。
 
-## 必要環境
+## インストール
+
+[リリース](https://github.com/kazu/mlh_on_macos/releases)から、macOS は dmg、Linux は deb をダウンロードして入れます。
+ソースからビルドする場合は [macOS でのビルド](docs/macos.md)、[Linux でのビルド](linux/README.md)を参照してください。
 
 ### macOS
 
-- macOS 13 以降（開発・確認は macOS 15 / Apple Silicon）
-- Command Line Tools for Xcode（Swift 6.1 以上の `swift` と `codesign`）。Xcode 本体は不要です。
-- 初回のビルドでは SwiftPM が依存パッケージ（AzooKeyKanaKanjiConverter とその辞書など）を取得するため、
-  ネットワーク接続が必要です。
+macOS 13.3 以降で、Apple Silicon と Intel の両方で動きます。
+
+1. `mlh-v<バージョン>.dmg` を開き、`mlh.app` を `Input Methods`（`/Library/Input Methods` へのリンク）にドラッグします。
+   管理者のパスワードを求められます。
+2. dmg の mlh は Apple の公証を受けていないので、ダウンロードの印（quarantine）を外します（Bash、zsh、Nushell 共通）。
+
+   ```sh
+   sudo xattr -dr com.apple.quarantine "/Library/Input Methods/mlh.app"
+   ```
+
+3. 一度ログアウトしてログインし直します。初めて `/Library/Input Methods` に入れたときは、
+   ログインし直すまでシステム設定の一覧に出てきません。
+4. 入力ソースに追加します。サードパーティの入力メソッドは、プログラムから有効化しても反映されないため、手動で追加してください。
+   1. 「システム設定」→「キーボード」→「テキスト入力」の「入力ソース」の「編集…」を開く
+   2. 左下の「+」を押し、言語の一覧から「日本語」を選ぶ
+   3. 「mlh」を選んで「追加」
+   4. メニューバーの入力メニュー（`/␣` アイコン）から mlh を選択
+5. アクセシビリティを許可します。Ghostty などのターミナルや、Chrome・Discord・Slack・VS Code などの
+   Chromium/Electron 系アプリでは、元の文字列を消すためにバックスペースのキーイベントを合成します
+   （[制限事項](docs/usage.md#制限事項)を参照）。「システム設定」→「プライバシーとセキュリティ」→
+   「アクセシビリティ」の「+」で、`/Library/Input Methods/mlh.app` を追加してください。
+
+mlh は常に ASCII がそのまま入る入力メソッドなので、普段から mlh を選んだままで使えます。
+文脈を使った変換（Zenzai）のモデルは dmg に入っていません。使う場合は[設定](docs/settings.md#文脈を使った変換zenzai)を参照してください。
 
 ### Linux
 
-- Wayland と IBus（Ubuntu 26.04 でビルド・動作確認）
-- Debian パッケージ（`.deb`）を作成できます。ビルドには Rust、Cargo、Swift などが必要です。
-  必要なパッケージとインストール手順は
-  [Linux 版の手順](linux/README.md)を参照してください。
-
-## ビルドとインストール
-
-リポジトリのルートで、次のコマンドを実行します（Bash、zsh、Nushell 共通）。
+deb は Ubuntu 26.04 向けで、Wayland と IBus で動きます。`0.1.3` の部分は、ダウンロードしたバージョンに合わせてください（Bash、zsh、Nushell 共通）。
 
 ```sh
-make build
+sudo apt install ./mlh-ibus_0.1.3_amd64.deb
 ```
 
-Linux では `make deb` で Debian パッケージも作成できます。
-
-インストールと詳しいビルド手順は、各環境の説明を参照してください。
-
-- [macOS のビルドとインストール](docs/macos.md)
-- [Linux のビルドとインストール](linux/README.md)
-
-`v0.2.0` のようなバージョンのタグを push すると、GitHub Actions（`.github/workflows/release.yml`）が
-Debian パッケージ（Ubuntu 26.04 向け）と macOS の dmg を作り、
-[リリース](https://github.com/kazu/mlh_on_macos/releases)に置きます。
-バージョンはタグから `scripts/set-version.sh` で設定します（`debian/changelog`、`linux/Cargo.toml`、
-`Resources/Info.plist`）。`debian/changelog` にそのバージョンの項目がなければ「Release 0.2.0.」の項目を足します。
+入れたあと、入力中の文章を確定してから `ibus restart` を実行するか、ログインし直します。
+その後、デスクトップの入力ソースに `mlh` を追加します。既に動いているアプリでは、新しく開いたウィンドウでまず試してください。
 
 ## 使い方
 
@@ -102,7 +108,7 @@ macOS では、文脈を使って変換する Zenzai も利用できます。
 - [llama.cpp](https://github.com/ggml-org/llama.cpp)（Zenzai を使うビルドのみ）— MIT License、Copyright (c) 2023-2024 The ggml authors
 
 Zenzai のモデル（[zenz-v3.1-small](https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf)）は CC BY-SA 4.0 で、
-アプリには含まれず、`make zenz-model` で別にダウンロードします。
+アプリには含まれず、別にダウンロードします（[設定](docs/settings.md#文脈を使った変換zenzai)を参照）。
 
 Apache License 2.0 は GPL version 3 とは両立しますが、version 2 とは両立しないとされています。
 そのため、ビルドしたアプリを配布する場合は GPL version 3 の条件で配布してください。

@@ -142,9 +142,21 @@ Zenzai は、変換する位置より前の文字列（同じ行の、すでに�
 
 Zenzai は zenz という小さな言語モデルを llama.cpp で動かします。モデル（約 72MB）は同梱していないので、
 一度ダウンロードしてください。モデルがあれば Zenzai を使い、なければ通常の azooKey で変換します。
+次の 2 行で `~/Library/Application Support/mlh/zenz.gguf` に置きます（`curl` を使います）。
+ソースからビルドした場合は、リポジトリのルートで `make zenz-model` でも同じことができます。
+
+Bash、zsh:
 
 ```sh
-make zenz-model   # ~/Library/Application Support/mlh/zenz.gguf にダウンロード
+mkdir -p "$HOME/Library/Application Support/mlh"
+curl -fL -o "$HOME/Library/Application Support/mlh/zenz.gguf" https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf
+```
+
+Nushell:
+
+```nu
+mkdir ($env.HOME | path join 'Library/Application Support/mlh')
+^curl -fL -o ($env.HOME | path join 'Library/Application Support/mlh/zenz.gguf') https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf
 ```
 
 | 設定 | デフォルト | 意味 |

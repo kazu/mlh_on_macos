@@ -1,4 +1,8 @@
-# macOS のビルドとインストール
+# macOS でのビルド
+
+ビルドには Command Line Tools for Xcode（Swift 6.1 以上の `swift` と `codesign`）が必要です。Xcode 本体は不要です。
+初回のビルドでは SwiftPM が依存パッケージ（AzooKeyKanaKanjiConverter とその辞書など）を取得するため、
+ネットワーク接続が必要です。リポジトリのルートで実行します（Bash、zsh、Nushell 共通）。
 
 ```sh
 make build      # build/mlh.app を作成（ad-hoc 署名済み）
@@ -10,27 +14,9 @@ make clean      # build/ と .build/（SwiftPM の作業ディレクトリ）を
 
 `make install` は実行中の mlh プロセスを終了し（`killall mlh`）、アプリを置き換えたうえで
 `scripts/register.swift` で `TISRegisterInputSource` / `TISEnableInputSource` を呼び出します。
-
-## ディスクイメージ（dmg）から入れる
-
-ビルドせずに入れる場合は、[リリース](https://github.com/kazu/mlh_on_macos/releases)の
-`mlh-<バージョン>.dmg` を使います。Apple Silicon と Intel の両方で動きます。
-
-1. dmg を開き、`mlh.app` を `Input Methods`（`/Library/Input Methods` へのリンク）にドラッグする（管理者のパスワードが要ります）
-2. dmg の mlh は Apple の公証を受けていないので、ダウンロードの印（quarantine）を外す
-
-   ```sh
-   sudo xattr -dr com.apple.quarantine "/Library/Input Methods/mlh.app"
-   ```
-
-3. 一度ログアウトしてログインし直し、下の「入力ソースへの追加」と「アクセシビリティの許可」を行う
-
-Zenzai のモデルは dmg に入っていません。使う場合は次の 2 行でダウンロードします（Bash、zsh、Nushell 共通）。
-
-```sh
-mkdir -p ~/Library/Application\ Support/mlh
-curl -fL -o ~/Library/Application\ Support/mlh/zenz.gguf https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf
-```
+初めて入れたときは、README の[インストール](../README.md#macos)の手順 4・5（入力ソースへの追加とアクセシビリティの許可）を行ってください。
+`make install` で入れた場合、アクセシビリティに追加するのは `~/Library/Input Methods/mlh.app` です。
+「+」のファイル選択では `~/Library` が隠れているので、⌘⇧G で `~/Library/Input Methods` を開いてください。
 
 dmg は `make dmg` で作れます（`build/mlh.dmg`）。`ARCHS="arm64 x86_64"` を付けると両方の CPU 向けにビルドして 1 つにまとめます。
 
@@ -48,33 +34,10 @@ make install-system   # /Library/Input Methods/mlh.app に配置（sudo が必�
 システム設定の一覧に出てきません。以後の更新（`make install-system` の再実行）ではログアウトは不要です。
 アクセシビリティの許可も `/Library/Input Methods/mlh.app` に対して追加し直してください。
 
-## 入力ソースへの追加（初回のみ）
-
-最近の macOS では、サードパーティの入力メソッドをプログラムから有効化しても反映されないため、
-初回は手動で追加してください。
-
-1. 「システム設定」→「キーボード」→「テキスト入力」の「入力ソース」の「編集…」を開く
-2. 左下の「+」を押し、言語の一覧から「日本語」を選ぶ
-3. 「mlh」を選んで「追加」
-4. メニューバーの入力メニュー（`/␣` アイコン）から mlh を選択
-
-一覧に出てこない場合は、システム設定を開き直すか、一度ログアウトして再ログインしてください。
-mlh は常に ASCII がそのまま入る入力メソッドなので、普段から mlh を選んだままで使えます。
-
-## アクセシビリティの許可
-
-Ghostty などのターミナルや、Chrome・Discord・Slack・VS Code などの Chromium/Electron 系アプリでは、
-元の文字列を消すためにバックスペースのキーイベントを合成します（[制限事項](usage.md#制限事項)を参照）。
-このため「システム設定」→「プライバシーとセキュリティ」→「アクセシビリティ」で mlh を許可してください。
-
-- 「+」のファイル選択では `~/Library` が隠れているので、⌘⇧G で `~/Library/Input Methods` を開くか、
-  `open ~/Library/Input\ Methods` で開いた Finder から mlh.app を一覧へドラッグします。
-- 署名が変わると許可が無効になります。ad-hoc 署名でビルドし直した場合は、一覧から mlh を「−」で
-  削除して追加し直し、入力ソースを一度切り替えてください（固定の署名を使う方法は「署名」を参照）。
-
 ## 署名
 
 ad-hoc 署名のままだと、ビルドし直すたびにアクセシビリティの許可が無効になります。
+そのときは一覧から mlh を「−」で削除して追加し直し、入力ソースを一度切り替えてください。
 マシンごとに一度だけ自己署名のコード署名用 ID を作っておくと、以後の `make build` はその ID で署名し、
 許可が保たれます。
 
