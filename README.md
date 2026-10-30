@@ -52,6 +52,12 @@ Linux では `make deb` で Debian パッケージも作成できます。
 - [macOS のビルドとインストール](docs/macos.md)
 - [Linux のビルドとインストール](linux/README.md)
 
+`v0.2.0` のようなバージョンのタグを push すると、GitHub Actions（`.github/workflows/release.yml`）が
+Debian パッケージ（Ubuntu 26.04 向け）と macOS の dmg を作り、
+[リリース](https://github.com/kazu/mlh_on_macos/releases)に置きます。
+バージョンはタグから `scripts/set-version.sh` で設定します（`debian/changelog`、`linux/Cargo.toml`、
+`Resources/Info.plist`）。`debian/changelog` にそのバージョンの項目がなければ「Release 0.2.0.」の項目を足します。
+
 ## 使い方
 
 入力したローマ字に `/` を付けて Space を押すと、漢字変換できます。

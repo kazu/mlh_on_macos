@@ -1,0 +1,44 @@
+# Builds the Debian package and the macOS disk image for a version tag
+# (v0.2.0, ...), with the tag's version, and publishes them as a GitHub
+# release.
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-24.04
+    # swiftlang (>= 6.1) and libobjc-15-dev come from Ubuntu 26.04.
+    container: ubuntu:26.04
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git
+      - uses: actions/checkout@v4
+      - run: apt-get build-dep -y ./
+      - run: sh scripts/set-version.sh "${GITHUB_REF_NAME#v}"
+      - run: make deb
+      - run: sh linux/tests/deb-package.sh ../mlh-ibus_*.deb
+      - run: mkdir dist && cp ../mlh-ibus_*.deb dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/
+
+  # Also publishes the release, with the deb.
+  dmg:
+    needs: deb
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh scripts/set-version.sh "${GITHUB_REF_NAME#v}"
+      - run: make dmg ARCHS="arm64 x86_64" DMG="build/mlh-$GITHUB_REF_NAME.dmg"
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes build/mlh-*.dmg mlh-ibus_*.deb
+        env:
+          GH_TOKEN: ${{ github.token }}
