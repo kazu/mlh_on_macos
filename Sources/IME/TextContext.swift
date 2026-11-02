@@ -192,17 +192,20 @@ enum TextContext {
 
     /// Posts `count` Backspace key presses to the HID event tap, one every
     /// `backspaceInterval` seconds.
-    static func postBackspaces(_ count: Int) {
+    static func postBackspaces(_ count: Int, shouldPost: @escaping () -> Bool,
+                               didPostLast: @escaping () -> Void) {
         guard count > 0 else { return }
         let source = CGEventSource(stateID: .privateState)
         for i in 0..<count {
             DispatchQueue.main.asyncAfter(deadline: .now() + backspaceInterval * Double(i)) {
+                guard shouldPost() else { return }
                 for down in [true, false] {
                     guard let ev = CGEvent(keyboardEventSource: source, virtualKey: backspaceKeyCode,
                                            keyDown: down) else { continue }
                     ev.flags = []
                     ev.post(tap: .cghidEventTap)
                 }
+                if i == count - 1 { didPostLast() }
             }
         }
     }

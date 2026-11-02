@@ -15,6 +15,9 @@ private let notFoundRange = NSRange(location: NSNotFound, length: 0)
 final class MLHShared {
     static let shared = MLHShared()
 
+    weak var activeController: MLHInputController?
+    weak var syntheticDeletionOwner: MLHInputController?
+
     let engine = MLHEngine()
     private var dictionaryLoaded = false
     private var dictionaryModified: Date?
@@ -223,9 +226,12 @@ final class MLHInputController: IMKInputController {
     private var conversionPanelVisible = false
 
     // Fallback (typed buffer) editing: synthetic backspaces in flight.
-    private var pendingSyntheticBackspaces = 0
+    private var pendingProgress = SyntheticDeletionProgress()
     private var pendingContinuation: (() -> Void)?
     private var pendingTimeout: DispatchWorkItem?
+    private var pendingProbe: DispatchWorkItem?
+    private var pendingContextMatches: (() -> Bool)?
+    private var pendingAllBackspacesPosted = false
 
     private var shared: MLHShared { MLHShared.shared }
 
@@ -242,12 +248,27 @@ final class MLHInputController: IMKInputController {
 
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
+        shared.activeController = self
         if let client = sender as? MLHClient { currentClient = client }
-        typed.reset()
+        if pendingContinuation != nil {
+            if pendingProgress.remaining == 0 {
+                schedulePendingContinuation()
+            } else {
+                schedulePendingProbe()
+            }
+        } else {
+            typed.reset()
+        }
         shared.reloadUserDictionaryIfNeeded()
     }
 
     override func deactivateServer(_ sender: Any!) {
+        if shared.activeController === self { shared.activeController = nil }
+        if pendingContinuation != nil,
+           pendingProgress.lostFocus(canValidateContext: pendingContextMatches != nil) {
+            super.deactivateServer(sender)
+            return
+        }
         commit(client: (sender as? MLHClient) ?? currentClient)
         cancelPendingEdit()
         CandidatePanel.shared.hide()
@@ -268,6 +289,11 @@ final class MLHInputController: IMKInputController {
         guard let client = (sender as? MLHClient) ?? currentClient else { return false }
         currentClient = client
 
+        if let owner = shared.syntheticDeletionOwner, owner !== self,
+           event.type == .leftMouseDown || (event.type == .keyDown && event.keyCode != KeyCode.backspace) {
+            owner.cancelPendingEdit()
+        }
+
         if event.type == .leftMouseDown {
             if case .idle = state {
                 typed.reset()
@@ -278,17 +304,28 @@ final class MLHInputController: IMKInputController {
         }
         guard event.type == .keyDown else { return false }
 
-        if pendingSyntheticBackspaces > 0 {
+        if let owner = shared.syntheticDeletionOwner, owner.pendingProgress.remaining > 0 {
             if event.keyCode == KeyCode.backspace {
-                pendingSyntheticBackspaces -= 1
-                if pendingSyntheticBackspaces == 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + TextContext.backspaceInterval) { [weak self] in
-                        self?.runPendingContinuation()
-                    }
+                if owner.pendingProgress.observeBackspace() {
+                    owner.schedulePendingContinuation()
                 }
                 return false
             }
-            return true   // ignore other keys while our deletion is in flight
+            if owner === self {
+                switch owner.pendingProgress.actionForOtherKey(
+                    allEventsPosted: owner.pendingAllBackspacesPosted,
+                    contextMatches: owner.pendingContextMatches?() == true && shared.activeController === owner
+                ) {
+                case .ignore:
+                    return true
+                case .finish:
+                    owner.runPendingContinuation()
+                case .cancel:
+                    owner.cancelPendingEdit()
+                }
+            } else {
+                owner.cancelPendingEdit()
+            }
         }
 
         let key = Key(event)
@@ -456,6 +493,18 @@ final class MLHInputController: IMKInputController {
                 enter(pending, client: client, replacement: notFoundRange)
             }
         } else {
+            let contextMatches: (() -> Bool)?
+            if let location = context.location, !oldSuffix.isEmpty {
+                contextMatches = { [weak self] in
+                    guard let self, let current = TextContext.apiContext(client: self.currentClient ?? client),
+                          let currentLocation = current.location else { return false }
+                    return SyntheticDeletionProgress.matchesContext(
+                        expectedLocation: location, expectedPrefix: TextContext.prefix(old, prefixLength),
+                        currentLocation: currentLocation, currentText: current.text)
+                }
+            } else {
+                contextMatches = nil
+            }
             let continuation: () -> Void = { [weak self] in
                 guard let self else { return }
                 let target = self.currentClient ?? client
@@ -465,7 +514,8 @@ final class MLHInputController: IMKInputController {
                 self.enter(pending, client: target, replacement: notFoundRange)
             }
             // +1 for the Space, which is passed through to the app (see handleSpace).
-            startSyntheticDeletion(count: oldSuffix.count + 1, continuation: continuation)
+            startSyntheticDeletion(count: oldSuffix.count + 1, contextMatches: contextMatches,
+                                   continuation: continuation)
         }
     }
 
@@ -550,36 +600,86 @@ final class MLHInputController: IMKInputController {
 
     // MARK: - Synthetic deletion (fallback context)
 
-    private func startSyntheticDeletion(count: Int, continuation: @escaping () -> Void) {
-        cancelPendingEdit()
-        pendingSyntheticBackspaces = count
+    private func startSyntheticDeletion(count: Int, contextMatches: (() -> Bool)?,
+                                        continuation: @escaping () -> Void) {
+        shared.syntheticDeletionOwner?.cancelPendingEdit()
+        pendingProgress.start(count: count)
         pendingContinuation = continuation
+        pendingContextMatches = contextMatches
+        shared.syntheticDeletionOwner = self
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.pendingContinuation != nil else { return }
-            log.debug("synthetic backspaces timed out (\(self.pendingSyntheticBackspaces) left)")
-            self.runPendingContinuation()
+            log.debug("synthetic backspaces timed out (\(self.pendingProgress.remaining) left)")
+            if self.shared.activeController === self {
+                self.runPendingContinuation()
+            } else {
+                self.cancelPendingEdit()
+            }
         }
         pendingTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5 + TextContext.backspaceInterval * Double(count),
                                       execute: timeout)
         log.debug("posting \(count) synthetic backspace(s)")
-        TextContext.postBackspaces(count)
+        let generation = pendingProgress.generation
+        TextContext.postBackspaces(count, shouldPost: { [weak self] in
+            self?.pendingProgress.generation == generation
+        }) { [weak self] in
+            guard let self, self.pendingProgress.generation == generation else { return }
+            self.pendingAllBackspacesPosted = true
+            self.schedulePendingProbe(delay: TextContext.backspaceInterval)
+        }
+    }
+
+    private func schedulePendingContinuation() {
+        let generation = pendingProgress.generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + TextContext.backspaceInterval) { [weak self] in
+            guard let self, self.pendingProgress.generation == generation,
+                  self.pendingProgress.remaining == 0, self.shared.activeController === self else { return }
+            self.runPendingContinuation()
+        }
+    }
+
+    private func schedulePendingProbe(delay: TimeInterval = 0) {
+        guard pendingProbe == nil, pendingContinuation != nil, pendingAllBackspacesPosted,
+              pendingProgress.needsContextValidation,
+              pendingProgress.remaining > 0 else { return }
+        let generation = pendingProgress.generation
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingProgress.generation == generation else { return }
+            self.pendingProbe = nil
+            guard self.shared.activeController === self, self.pendingProgress.remaining > 0 else { return }
+            if self.pendingContextMatches?() == true {
+                log.debug("synthetic deletion: confirmed by client context")
+                self.runPendingContinuation()
+            } else {
+                self.schedulePendingProbe(delay: 0.02)
+            }
+        }
+        pendingProbe = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func runPendingContinuation() {
-        pendingTimeout?.cancel()
-        pendingTimeout = nil
-        pendingSyntheticBackspaces = 0
+        guard pendingProgress.allowsCompletion(contextMatches: pendingContextMatches?() == true) else {
+            log.debug("synthetic deletion: context unavailable or changed; cancel")
+            cancelPendingEdit()
+            return
+        }
         let continuation = pendingContinuation
-        pendingContinuation = nil
+        cancelPendingEdit()
         continuation?()
     }
 
     private func cancelPendingEdit() {
+        pendingProbe?.cancel()
+        pendingProbe = nil
+        pendingContextMatches = nil
+        pendingAllBackspacesPosted = false
+        if shared.syntheticDeletionOwner === self { shared.syntheticDeletionOwner = nil }
         pendingTimeout?.cancel()
         pendingTimeout = nil
-        pendingSyntheticBackspaces = 0
         pendingContinuation = nil
+        pendingProgress.reset()
     }
 
     // MARK: - Selecting (mlh-select-mode-map)
