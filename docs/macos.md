@@ -6,7 +6,8 @@
 
 ```sh
 make build      # build/mlh.app を作成（ad-hoc 署名済み）
-make test       # Core のテストを実行
+make test       # Core と更新処理のテストを実行
+make test-updates # 更新処理と隔離 dmg のテストを実行
 make install    # ~/Library/Input Methods/mlh.app に配置し、入力ソースとして登録・有効化
 make uninstall  # ~/Library/Input Methods/mlh.app を削除
 make clean      # build/ と .build/（SwiftPM の作業ディレクトリ）を削除
@@ -16,6 +17,7 @@ make clean      # build/ と .build/（SwiftPM の作業ディレクトリ）を
 `scripts/register.swift` で `TISRegisterInputSource` / `TISEnableInputSource` を呼び出します。
 初めて入れたときは、README の[インストール](../README.md#macos)の手順 4・5（入力ソースへの追加とアクセシビリティの許可）を行ってください。
 `make install` で入れた場合、アクセシビリティに追加するのは `~/Library/Input Methods/mlh.app` です。
+通常の `make build` は開発版属性を付けます。公開版の dmg はタグに対する `scripts/set-version.sh` がバージョンと公開版属性を設定してから作ります。開発版は設定画面のアップグレード対象外です。
 「+」のファイル選択では `~/Library` が隠れているので、⌘⇧G で `~/Library/Input Methods` を開いてください。
 
 dmg は `make dmg` で作れます（`build/mlh.dmg`）。`ARCHS="arm64 x86_64"` を付けると両方の CPU 向けにビルドして 1 つにまとめます。

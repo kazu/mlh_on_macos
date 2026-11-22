@@ -30,6 +30,16 @@ cd ($app | path join Contents Resources mlh-settings.app Contents MacOS)
 ./mlh-settings-tui
 ```
 
+## アップデート（macOS）
+
+公開版の mlh は、入力メソッドを有効にしたとき、前回の成功から 24 時間以上たっていれば GitHub Releases の最新版を非同期で確認します。新しい版があれば入力メニューに「アップデートあり…」が表示されます。設定画面を開いたときも確認し、「アップデート」では「今すぐ確認」をいつでも押せます。自動でインストールはしません。
+
+「アップグレード…」を押すと、確認後に dmg をダウンロードし、GitHub Releases の SHA-256、アプリのバージョンと署名、Apple Silicon と Intel 用の実行ファイルを検証してから、現在の導入場所に置きます。`~/Library/Input Methods` なら通常の権限で、`/Library/Input Methods` なら管理者認証後に導入します。現行の配布物は ad-hoc 署名で Apple の公証を受けていません。
+
+更新すると、すでに開いているアプリと mlh の接続が切れる場合があります。作業を保存し、アプリと mlh を再起動できるときに実行してください。アップグレードは実行中の mlh を停止せず、入力ソースの切替や再登録も行いません。反映には mlh の再起動が必要です。
+
+ソースから `make build` したアプリは開発版です。公開版より新しい変更を含む場合があるため、公開版との自動比較や設定画面からの置き換えは行いません。「今すぐ確認」で公開版の情報は見られます。リリース用ビルドはタグのバージョンと公開版属性を設定します。
+
 ## 行の書き換え（`x`）
 
 egg の `mlh-userdef-function` の代わりに、`x/` の直前の行全体（`x/` は除く）を
@@ -149,10 +159,10 @@ macOS 15 以降では、LAN 内のサーバーに初めて接続するときに�
 | `KanjiBackend` | エンジン |
 |---|---|
 | `azookey`（デフォルト） | 端末内の [azooKey](https://github.com/azooKey/AzooKeyKanaKanjiConverter)。ネットワーク不要で、読みは外部に送信されません |
-| `google` | Google の変換 API。固有名詞や新しい言葉に強い一方、ネットワーク接続が必要で、読みを Google に送信します |
+| `google` | Google API（Google の変換 API）。固有名詞や新しい言葉に強い一方、ネットワーク接続が必要で、読みを Google に送信します |
 
 ```sh
-defaults write com.github.kazu.inputmethod.mlh KanjiBackend -string google   # Google に切り替える
+defaults write com.github.kazu.inputmethod.mlh KanjiBackend -string google   # Google API に切り替える
 defaults delete com.github.kazu.inputmethod.mlh KanjiBackend                 # デフォルト（azooKey）に戻す
 ```
 

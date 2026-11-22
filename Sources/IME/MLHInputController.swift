@@ -1,4 +1,5 @@
 import Cocoa
+import MLHUpdates
 import MLHCore
 import InputMethodKit
 import Carbon
@@ -10,6 +11,22 @@ let mlhBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.github.kazu.input
 private let log = Logger(subsystem: mlhBundleIdentifier, category: "input")
 
 private let notFoundRange = NSRange(location: NSNotFound, length: 0)
+
+private enum ReleaseNotice {
+    static let identity = BuildIdentity(bundle: .main)
+    static let checker = UpdateChecker()
+
+    static func checkInBackground() {
+        guard identity.isRelease else { return }
+        Task.detached(priority: .background) { _ = try? await checker.checkIfDue() }
+    }
+
+    static func available() -> ReleaseInfo? {
+        guard let release = UpdateCheckCache().read().release,
+              identity.hasUpdate(release) else { return nil }
+        return release
+    }
+}
 
 /// State shared by all input controllers of this process.
 final class MLHShared {
@@ -243,6 +260,12 @@ final class MLHInputController: IMKInputController {
         let settings = NSMenuItem(title: "mlh 設定…", action: #selector(openSettings(_:)), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
+        if let release = ReleaseNotice.available() {
+            let update = NSMenuItem(title: "アップデートあり（\(release.tag)）…",
+                                    action: #selector(openSettings(_:)), keyEquivalent: "")
+            update.target = self
+            menu.addItem(update)
+        }
         return menu
     }
 
@@ -269,6 +292,7 @@ final class MLHInputController: IMKInputController {
             typed.reset()
         }
         shared.reloadUserDictionaryIfNeeded()
+        ReleaseNotice.checkInBackground()
     }
 
     override func deactivateServer(_ sender: Any!) {

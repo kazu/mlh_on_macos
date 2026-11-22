@@ -54,7 +54,7 @@ INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 SIGN_NAME    := MLH Local Code Signing
 SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
 
-.PHONY: all build executable test test-gui install install-system dmg verify-bundle uninstall clean signing-identity zenz-model
+.PHONY: all build executable test test-updates test-gui install install-system dmg verify-bundle uninstall clean signing-identity zenz-model
 
 all: build
 
@@ -126,19 +126,30 @@ $(ICON): scripts/make-icon.swift
 test:
 	$(TEST_BUILD) --product mlh-tests
 	MLH_AZOOKEY_DICTIONARY=".build/test/checkouts/$(AZOOKEY_DICT_PATH)" ./$(TEST_BIN)
+	$(SWIFT_BUILD) --product mlh-update-tests
+	./.build/release/mlh-update-tests
+	sh Tests/Updates/installer_fixture.sh "$(CURDIR)/.build/release/mlh-update-tests" "$(CURDIR)/$(BUILD_DIR)"
+
+test-updates:
+	$(SWIFT_BUILD) --product mlh-update-tests
+	./.build/release/mlh-update-tests
+	sh Tests/Updates/installer_fixture.sh "$(CURDIR)/.build/release/mlh-update-tests" "$(CURDIR)/$(BUILD_DIR)"
 
 # Requires a logged-in macOS desktop with Accessibility access for System Events.
 test-gui:
 	@mkdir -p "$(BUILD_DIR)"
-	@set -e; bin="$(CURDIR)/$(BUILD_DIR)/mlh-settings-gui-test"; server="$(CURDIR)/$(BUILD_DIR)/mlh-settings-http-test"; state="$(CURDIR)/$(BUILD_DIR)/.settings-gui-failure-state"; \
-		trap 'rm -f "$$bin" "$$server" "$$state"' 0; \
-		swiftc -D MLH_TESTING Sources/SettingsGUI/main.swift -framework AppKit -o "$$bin"; \
+	@set -e; bin="$(CURDIR)/$(BUILD_DIR)/.settings-test/debug/mlh-settings"; server="$(CURDIR)/$(BUILD_DIR)/mlh-settings-http-test"; state="$(CURDIR)/$(BUILD_DIR)/.settings-gui-failure-state"; \
+		trap 'rm -f "$$server" "$$state"' 0; \
+		swift build -c debug --build-path "$(BUILD_DIR)/.settings-test" --product mlh-settings -Xswiftc -DMLH_TESTING; \
 		swiftc Tests/GUIFailureHarness/model_http_server.swift -o "$$server"; \
+		swift build -c debug --build-path "$(BUILD_DIR)/.settings-test" --product mlh-update-tests -Xswiftc -DMLH_TESTING; \
+		swift build -c debug --build-path "$(BUILD_DIR)/.settings-test" --product mlh-settings-backend -Xswiftc -DMLH_TESTING; \
 		swift Tests/GUIFailureHarness/main.swift "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/backend.sh" "$$state"; \
 		sh Tests/GUIFailureHarness/model_download.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/model_backend.sh" "$(CURDIR)/$(BUILD_DIR)" "$$server"; \
 		sh Tests/GUIFailureHarness/model_races.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/model_backend.sh" "$(CURDIR)/$(BUILD_DIR)" "$$server" busy; \
 		sh Tests/GUIFailureHarness/model_races.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/model_backend.sh" "$(CURDIR)/$(BUILD_DIR)" "$$server" cancel; \
-		sh Tests/GUIFailureHarness/dynamic_navigation.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/dynamic_backend.sh" "$(CURDIR)/$(BUILD_DIR)"
+		sh Tests/GUIFailureHarness/dynamic_navigation.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/dynamic_backend.sh" "$(CURDIR)/$(BUILD_DIR)"; \
+		sh Tests/Updates/installer_fixture.sh "$(CURDIR)/$(BUILD_DIR)/.settings-test/debug/mlh-update-tests" "$(CURDIR)/$(BUILD_DIR)" "$$bin" "$$server" "$(CURDIR)/$(BUILD_DIR)/.settings-test/debug/mlh-settings-backend"
 
 install: build
 	-killall $(APP_NAME) 2>/dev/null

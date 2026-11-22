@@ -53,6 +53,7 @@ let package = Package(
                  traits: zenzaiTraits),
     ],
     targets: [
+        .target(name: "MLHUpdates", path: "Sources/Updates"),
         .target(
             name: "MLHCore",
             dependencies: coreDependencies,
@@ -61,7 +62,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "mlh",
-            dependencies: ["MLHCore"],
+            dependencies: ["MLHCore", "MLHUpdates"],
             path: "Sources/IME",
             swiftSettings: swift5,
             linkerSettings: [
@@ -73,25 +74,28 @@ let package = Package(
         ),
         .executableTarget(
             name: "mlh-settings",
+            dependencies: ["MLHUpdates"],
             path: "Sources/SettingsGUI",
             swiftSettings: swift5,
             linkerSettings: [.linkedFramework("AppKit")]
         ),
         .executableTarget(
             name: "mlh-settings-backend",
-            dependencies: ["MLHCore"],
+            dependencies: ["MLHCore", "MLHUpdates"],
             path: "Sources/SettingsBackendCLI",
             swiftSettings: swift5,
             linkerSettings: settingsBackendLinkerSettings
         ),
         .executableTarget(
             name: "mlh-tests",
-            dependencies: ["MLHCore"],
+            dependencies: ["MLHCore", "MLHUpdates"],
             path: "Tests",
-            exclude: ["GUIFailureHarness"],
+            exclude: ["GUIFailureHarness", "Updates"],
             swiftSettings: swift5,
             linkerSettings: settingsBackendLinkerSettings
         ),
+        .executableTarget(name: "mlh-update-tests", dependencies: ["MLHUpdates"], path: "Tests/Updates",
+                          exclude: ["installer_fixture.sh", "gui_update.sh", "gui_states.sh", "system_cli.sh"]),
     ]
 )
 

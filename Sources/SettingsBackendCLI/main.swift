@@ -1,5 +1,6 @@
 import Foundation
 import MLHCore
+import MLHUpdates
 #if canImport(Security)
 import Security
 #endif
@@ -87,6 +88,52 @@ do {
                                                 from: FileHandle.standardInput.readDataToEndOfFile())
         try makeStore().apply(request, writeAPIKey: writeAPIKey)
         FileHandle.standardOutput.write(try JSONEncoder().encode(makeStore().snapshot()))
+    #if os(macOS)
+    case "install-update":
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        #if MLH_TESTING
+        let testSystemDestination = ProcessInfo.processInfo.environment["MLH_UPDATE_TEST_SYSTEM_DESTINATION"]
+            .map { URL(fileURLWithPath: $0) }
+        let testEndpoint = ProcessInfo.processInfo.environment["MLH_UPDATE_TEST_API_URL"]
+            .flatMap(URL.init(string:))
+        #else
+        let testSystemDestination: URL? = nil
+        let testEndpoint: URL? = nil
+        #endif
+        guard arguments.count == 4,
+              let location = UpdateInstallLocation(rawValue: arguments[1]),
+              arguments[3].hasPrefix("v"), ReleaseVersion(arguments[3]) != nil,
+              (location == .system ? geteuid() == 0 || testSystemDestination != nil : geteuid() != 0) else {
+            throw UpdateInstallError.unsupportedLocation
+        }
+        let destination = location == .system ? (testSystemDestination ?? location.destination) : location.destination
+        guard let installed = Bundle(url: destination) else { throw UpdateInstallError.invalidBundle }
+        let identity = BuildIdentity(bundle: installed)
+        guard identity.isRelease,
+              let current = identity.version,
+              let requested = ReleaseVersion(arguments[3]), requested > current else {
+            throw UpdateInstallError.invalidBundle
+        }
+        if location == .system {
+            let release = try await ReleaseService(endpoint: testEndpoint ?? ReleaseService.latestURL).latest()
+            guard release.tag == arguments[3] else { throw UpdateInstallError.invalidBundle }
+            #if MLH_TESTING
+            let testPrivateDirectory = ProcessInfo.processInfo.environment["MLH_UPDATE_TEST_PRIVATE_DIRECTORY"]
+                .map { URL(fileURLWithPath: $0) }
+            #else
+            let testPrivateDirectory: URL? = nil
+            #endif
+            let privateDirectory = testPrivateDirectory
+                ?? URL(fileURLWithPath: "/private/var/tmp/mlh-update-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: privateDirectory) }
+            try UpdateInstaller.installDownloadedDMG(URL(fileURLWithPath: arguments[2]), release: release,
+                                                     at: destination, in: privateDirectory,
+                                                     systemOwned: testSystemDestination == nil)
+        } else {
+            try UpdateInstaller.install(URL(fileURLWithPath: arguments[2]),
+                                        at: destination, version: arguments[3])
+        }
+    #endif
     default:
         throw NSError(domain: "mlh-settings-backend", code: 64,
                       userInfo: [NSLocalizedDescriptionKey: "usage: mlh-settings-backend snapshot|apply"])

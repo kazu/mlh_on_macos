@@ -147,6 +147,7 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
     private var editors: [String: Editor] = [:]
     private var pendingReset: Set<String> = []
     private var backend: SettingsBackendClient?
+    private var updates: UpdatesViewController?
     private var actions: [String: SettingsAction] = [:]
     private var applyButtons: [NSButton] = []
     private var canApply = true
@@ -263,6 +264,10 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
         menu.addItem(appMenu)
         NSApplication.shared.mainMenu = menu
 
+        let updates = UpdatesViewController()
+        updates.availabilityChanged = { [weak self] available in self?.updateSectionLabel(available) }
+        self.updates = updates
+
         do {
             backend = try SettingsBackendClient()
             try show(backend!.snapshot())
@@ -272,6 +277,7 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
         }
         window.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        updates.checkOnOpen()
     }
 
     private func show(_ snapshot: Snapshot) {
@@ -293,7 +299,10 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
             let right = priority.firstIndex(of: $1.id) ?? priority.count
             return left == right ? $0.label < $1.label : left < right
         }
+        sections.append(Section(id: "updates", label: updates?.hasAvailableUpdate == true
+                                ? "アップデートあり" : "アップデート"))
         sectionViews = Dictionary(uniqueKeysWithValues: sections.map { ($0.id, makeSectionView($0, snapshot: snapshot)) })
+        sectionViews["updates"] = updates?.view
         sidebar.reloadData()
         let index = sections.firstIndex(where: { $0.id == selectedSectionID }) ?? 0
         if sections.indices.contains(index) {
@@ -329,6 +338,12 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
         selectSection(at: sidebar.selectedRow)
     }
 
+    private func updateSectionLabel(_ available: Bool) {
+        guard let index = sections.firstIndex(where: { $0.id == "updates" }) else { return }
+        sections[index] = Section(id: "updates", label: available ? "アップデートあり" : "アップデート")
+        sidebar.reloadData()
+    }
+
     private func selectSection(at index: Int) {
         guard sections.indices.contains(index), let view = sectionViews[sections[index].id] else { return }
         selectedSectionID = sections[index].id
@@ -360,6 +375,7 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
     }
 
     private func makeSectionView(_ section: Section, snapshot: Snapshot) -> NSView {
+        if section.id == "updates", let updates { return updates.view }
         let page = NSStackView()
         page.orientation = .vertical
         page.alignment = .leading
@@ -580,7 +596,7 @@ private final class SettingsWindowController: NSObject, NSApplicationDelegate, N
             return ["auto": "自動", "command": "外部コマンド", "openai": "OpenAI"][option.value] ?? option.label
         }
         if field.id == "kanji.backend" {
-            return ["azookey": "azooKey", "google": "Google"][option.value] ?? option.label
+            return ["azookey": "azooKey", "google": "Google API"][option.value] ?? option.label
         }
         return option.label
     }

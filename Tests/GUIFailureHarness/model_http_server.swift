@@ -5,6 +5,9 @@ let directory = URL(fileURLWithPath: CommandLine.arguments[1])
 let portFile = URL(fileURLWithPath: CommandLine.arguments[2])
 let readyFile = URL(fileURLWithPath: CommandLine.arguments[3])
 let releaseFile = URL(fileURLWithPath: CommandLine.arguments[4])
+let updateDMG = CommandLine.arguments.count > 5 ? URL(fileURLWithPath: CommandLine.arguments[5]) : nil
+let updateDigest = CommandLine.arguments.count > 6 ? CommandLine.arguments[6] : nil
+let updateSize = CommandLine.arguments.count > 7 ? Int64(CommandLine.arguments[7]) : nil
 
 signal(SIGPIPE, SIG_IGN)
 let listener = socket(AF_INET, SOCK_STREAM, 0)
@@ -27,7 +30,8 @@ let named = withUnsafeMutablePointer(to: &address) {
     }
 }
 guard named == 0 else { fatalError("getsockname failed") }
-try String(address.sin_port.bigEndian).write(to: portFile, atomically: true, encoding: .utf8)
+let port = address.sin_port.bigEndian
+try String(port).write(to: portFile, atomically: true, encoding: .utf8)
 
 @Sendable func sendAll(_ bytes: [UInt8], to client: Int32) {
     bytes.withUnsafeBytes { buffer in
@@ -47,6 +51,35 @@ func respond(to client: Int32) {
     guard count > 0,
           let firstLine = String(bytes: request[..<count], encoding: .utf8)?.components(separatedBy: "\r\n").first,
           let path = firstLine.split(separator: " ").dropFirst().first else { return }
+
+    if path == "/latest", updateDMG != nil, let updateDigest, let updateSize {
+        FileManager.default.createFile(atPath: readyFile.path + ".api-ready", contents: nil)
+        let deadline = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: releaseFile.path + ".api-release") && Date() < deadline {
+            usleep(20_000)
+        }
+        let asset = "http://127.0.0.1:\(port)/kazu/mlh_on_macos/releases/download/v9.9.9/mlh-v9.9.9.dmg"
+        let object: [String: Any] = ["tag_name": "v9.9.9", "draft": false, "prerelease": false,
+                                     "assets": [["name": "mlh-v9.9.9.dmg", "browser_download_url": asset,
+                                                 "digest": "sha256:\(updateDigest)", "size": updateSize]]]
+        let body = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+        sendAll(Array("HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8), to: client)
+        sendAll(Array(body), to: client)
+        return
+    }
+    if path == "/kazu/mlh_on_macos/releases/download/v9.9.9/mlh-v9.9.9.dmg", let updateDMG,
+       let body = try? Data(contentsOf: updateDMG) {
+        sendAll(Array("HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8), to: client)
+        let halfway = body.count / 2
+        sendAll(Array(body.prefix(halfway)), to: client)
+        FileManager.default.createFile(atPath: readyFile.path, contents: nil)
+        let deadline = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: releaseFile.path) && Date() < deadline {
+            usleep(20_000)
+        }
+        sendAll(Array(body.dropFirst(halfway)), to: client)
+        return
+    }
 
     if path == "/error.gguf" || path == "/missing.gguf" {
         let status = path == "/error.gguf" ? "500 Internal Server Error" : "404 Not Found"

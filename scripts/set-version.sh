@@ -17,8 +17,11 @@ sed -i.bak "1,/^version = /s/^version = .*/version = \"$version\"/" settings-tui
 sed -i.bak "/^name = \"mlh-settings-tui\"\$/{n;s/^version = .*/version = \"$version\"/;}" settings-tui/Cargo.lock
 sed -i.bak "1,/^version = /s/^version = .*/version = \"$version\"/" settings-gui/Cargo.toml
 sed -i.bak "/^name = \"mlh-settings-gtk\"\$/{n;s/^version = .*/version = \"$version\"/;}" settings-gui/Cargo.lock
-sed -i.bak "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>$version</string>|;}" Resources/Info.plist
+sed -i.bak -e "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>$version</string>|;}" \
+    -e "/<key>MLHBuildChannel<\/key>/{n;s|<string>.*</string>|<string>release</string>|;}" \
+    Resources/Info.plist
 sed -i.bak -e "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>.*</string>|<string>$version</string>|;}" \
     -e "/<key>CFBundleVersion<\/key>/{n;s|<string>.*</string>|<string>$version</string>|;}" \
+    -e "/<key>MLHBuildChannel<\/key>/{n;s|<string>.*</string>|<string>release</string>|;}" \
     Resources/SettingsInfo.plist
 rm linux/Cargo.toml.bak linux/Cargo.lock.bak settings-tui/Cargo.toml.bak settings-tui/Cargo.lock.bak settings-gui/Cargo.toml.bak settings-gui/Cargo.lock.bak Resources/Info.plist.bak Resources/SettingsInfo.plist.bak
