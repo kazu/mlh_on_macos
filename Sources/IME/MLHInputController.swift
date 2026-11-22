@@ -38,27 +38,22 @@ final class MLHShared {
     private lazy var azooKey: AzooKeyTransliterator? =
         AzooKeyTransliterator.bundledDictionaryURL.map {
             AzooKeyTransliterator(dictionaryURL: $0, zenzaiWeightURL: Self.zenzaiModelURL,
-                                  contextLength: Self.integerDefault("ZenzaiContextLength") ?? 40,
-                                  inferenceLimit: Self.integerDefault("ZenzaiInferenceLimit") ?? 10)
+                                  contextLength: ZenzaiSettings.integer("ZenzaiContextLength").value ?? 40,
+                                  inferenceLimit: ZenzaiSettings.integer("ZenzaiInferenceLimit").value ?? 10)
         }
-
-    private static func integerDefault(_ key: String) -> Int? {
-        UserDefaults.standard.object(forKey: key) == nil ? nil : UserDefaults.standard.integer(forKey: key)
-    }
 
     /// The zenz model for azooKey's neural conversion: the ZenzaiModel default,
     /// else ~/Library/Application Support/mlh/zenz.gguf, if the file exists.
     static var zenzaiModelURL: URL? {
-        let path = UserDefaults.standard.string(forKey: "ZenzaiModel").map { ($0 as NSString).expandingTildeInPath }
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/mlh/zenz.gguf").path
+        let path = ZenzaiSettings.modelPath().value
         return FileManager.default.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
     }
 
     /// The kanji converter chosen by the KanjiBackend default: "google" (the
     /// Google CGI API) or "azookey" (local, also used when unset).
     func transliterator() -> Transliterator {
-        if UserDefaults.standard.string(forKey: "KanjiBackend") != "google" {
+        if KanjiBackend.resolve(configuredName: UserDefaults.standard.string(forKey: "KanjiBackend"),
+                                origin: .userDefaults).value != .google {
             if let azooKey { return azooKey }
             log.error("azooKey dictionary not found; using Google")
         }
@@ -68,7 +63,8 @@ final class MLHShared {
     /// Loads the azooKey dictionary and the zenz model in the background, so
     /// that the first conversion does not wait for them.
     func warmUp() {
-        guard UserDefaults.standard.string(forKey: "KanjiBackend") != "google", let azooKey else { return }
+        guard KanjiBackend.resolve(configuredName: UserDefaults.standard.string(forKey: "KanjiBackend"),
+                                   origin: .userDefaults).value != .google, let azooKey else { return }
         DispatchQueue.global(qos: .utility).async {
             let start = Date()
             _ = azooKey.convert("にほんご", context: "これは")

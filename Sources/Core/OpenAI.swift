@@ -23,11 +23,79 @@ public enum OpenAI {
         /// Sent as `reasoning_effort` when set (e.g. "none" turns thinking off).
         public var reasoningEffort: String?
 
+        public struct Resolved {
+            public let baseURL: ResolvedSetting<String>
+            public let model: ResolvedSetting<String>
+            public let instructions: ResolvedSetting<String>
+            public let reasoningEffort: ResolvedSetting<String?>
+
+            public var config: Config {
+                Config(baseURL: baseURL.value, model: model.value,
+                       instructions: instructions.value, reasoningEffort: reasoningEffort.value)
+            }
+
+            fileprivate func applying(_ environment: [String: String], origin: SettingsOrigin) -> Resolved {
+                func override(_ current: ResolvedSetting<String>, _ key: String) -> ResolvedSetting<String> {
+                    guard let value = environment[key] else { return current }
+                    return ResolvedSetting(value: value, origin: origin)
+                }
+                let effort: ResolvedSetting<String?>
+                if let value = environment["MLH_OPENAI_REASONING_EFFORT"] {
+                    effort = ResolvedSetting(value: value, origin: origin)
+                } else {
+                    effort = reasoningEffort
+                }
+                return Resolved(
+                    baseURL: override(baseURL, "MLH_OPENAI_BASE_URL"),
+                    model: override(model, "MLH_OPENAI_MODEL"),
+                    instructions: override(instructions, "MLH_OPENAI_INSTRUCTIONS"),
+                    reasoningEffort: effort
+                )
+            }
+        }
+
+        private init(baseURL: String, model: String, instructions: String, reasoningEffort: String?) {
+            self.baseURL = baseURL
+            self.model = model
+            self.instructions = instructions
+            self.reasoningEffort = reasoningEffort
+        }
+
+        public static func resolved(defaults: UserDefaults = .standard,
+                                    environment: [String: String] = [:],
+                                    persisted: [String: String] = [:]) -> Resolved {
+            func setting(_ key: String, _ fallback: String) -> ResolvedSetting<String> {
+                if let value = defaults.string(forKey: key) {
+                    return ResolvedSetting(value: value, origin: .userDefaults)
+                }
+                return ResolvedSetting(value: fallback, origin: .automatic)
+            }
+            let effort: ResolvedSetting<String?>
+            if let value = defaults.string(forKey: "OpenAIReasoningEffort") {
+                effort = ResolvedSetting(value: value, origin: .userDefaults)
+            } else {
+                effort = ResolvedSetting(value: nil, origin: .automatic)
+            }
+            return Resolved(
+                baseURL: setting("OpenAIBaseURL", OpenAI.defaultBaseURL),
+                model: setting("OpenAIModel", OpenAI.defaultModel),
+                instructions: setting("OpenAIInstructions", OpenAI.defaultInstructions),
+                reasoningEffort: effort
+            ).applying(persisted, origin: .file).applying(environment, origin: .environment)
+        }
+
         public init(defaults: UserDefaults = .standard) {
-            baseURL = defaults.string(forKey: "OpenAIBaseURL") ?? OpenAI.defaultBaseURL
-            model = defaults.string(forKey: "OpenAIModel") ?? OpenAI.defaultModel
-            instructions = defaults.string(forKey: "OpenAIInstructions") ?? OpenAI.defaultInstructions
-            reasoningEffort = defaults.string(forKey: "OpenAIReasoningEffort")
+            self = Self.resolved(defaults: defaults).config
+        }
+
+        /// Applies Linux's existing OpenAI environment overrides.
+        public func applyingEnvironment(_ environment: [String: String]) -> Config {
+            return Resolved(
+                baseURL: ResolvedSetting(value: baseURL, origin: .automatic),
+                model: ResolvedSetting(value: model, origin: .automatic),
+                instructions: ResolvedSetting(value: instructions, origin: .automatic),
+                reasoningEffort: ResolvedSetting(value: reasoningEffort, origin: .automatic)
+            ).applying(environment, origin: .environment).config
         }
     }
 

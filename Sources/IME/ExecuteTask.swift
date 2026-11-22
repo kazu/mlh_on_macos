@@ -28,19 +28,21 @@ protocol ExecuteTask: AnyObject {
 /// exists, else OpenAI if its API key is in the keychain, else nothing (`x/`
 /// is just removed, as in egg without mlh-userdef-function).
 enum Execute {
-    enum Backend: String { case command, openai }
+    typealias Backend = ExecuteBackend
 
     static var backend: Backend? {
         #if os(Linux)
-        if let name = ProcessInfo.processInfo.environment["MLH_EXEC_BACKEND"] { return Backend(rawValue: name) }
+        let name = ProcessInfo.processInfo.environment["MLH_EXEC_BACKEND"]
+        let origin: ResolvedSetting<Backend?>.Origin = .environment
         #else
-        if let name = UserDefaults.standard.string(forKey: "ExecuteBackend") {
-            return Backend(rawValue: name)
-        }
+        let name = UserDefaults.standard.string(forKey: "ExecuteBackend")
+        let origin: ResolvedSetting<Backend?>.Origin = .userDefaults
         #endif
-        if CommandTask.isAvailable { return .command }
-        if OpenAITask.hasAPIKey { return .openai }
-        return nil
+        return Backend.resolve(
+            configuredName: name, configuredOrigin: origin,
+            commandAvailable: CommandTask.isAvailable,
+            apiKeyAvailable: OpenAITask.hasAPIKey
+        ).value
     }
 
     static var settings: ExecuteFile {
@@ -73,11 +75,7 @@ enum Execute {
         }
         #if os(Linux)
         let env = ProcessInfo.processInfo.environment
-        var defaults = OpenAI.Config()
-        defaults.baseURL = env["MLH_OPENAI_BASE_URL"] ?? defaults.baseURL
-        defaults.model = env["MLH_OPENAI_MODEL"] ?? defaults.model
-        defaults.instructions = env["MLH_OPENAI_INSTRUCTIONS"] ?? defaults.instructions
-        defaults.reasoningEffort = env["MLH_OPENAI_REASONING_EFFORT"] ?? defaults.reasoningEffort
+        let defaults = OpenAI.Config.resolved(environment: env).config
         return OpenAITask(source: source, config: s.apply(to: defaults))
         #else
         return OpenAITask(source: source, config: s.apply(to: OpenAI.Config()))
