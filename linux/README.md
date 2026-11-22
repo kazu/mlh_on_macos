@@ -26,7 +26,7 @@ GNOME Terminal では `mlh-gnome-terminal` を実行すると、既存のター�
 
 ## 設定
 
-専用ウィンドウは `mlh-settings-gtk`、端末画面は `mlh-settings-tui` で開けます。どちらも同じ設定を編集します。CLI から JSON を扱う場合は `mlh-settings-backend snapshot` と `mlh-settings-backend apply` を使います。
+アプリ一覧の「mlh 設定」から専用ウィンドウを開けます。IBus の設定画面で mlh を選んだ場合も、入力メソッドの設定ボタンから開けます。端末では `mlh-settings-gtk`、端末画面は `mlh-settings-tui` で開けます。どちらも同じ設定を編集します。CLI から JSON を扱う場合は `mlh-settings-backend snapshot` と `mlh-settings-backend apply` を使います。
 
 画面で保存した一般設定は `~/.config/mlh/settings.json` に入ります。`XDG_CONFIG_HOME` を指定した場合はその下の `mlh/settings.json` です。従来の環境変数が設定されている項目は環境変数が優先され、画面では読み取り専用になります。API キーは対応する Secret Service があれば画面から保存できます。対応サービスがない場合は API キー欄を編集できません。保存した値は設定ファイルや画面に表示されません。`OPENAI_API_KEY` があれば保存済みの値より優先します。
 

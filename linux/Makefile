@@ -25,11 +25,12 @@ build:
 	CARGO_TARGET_DIR="$(CARGO_TARGET_DIR)" cargo build --locked --manifest-path settings-gui/Cargo.toml --release -j $(JOBS)
 
 install: build
-	install -d "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/mlh" "$(DESTDIR)$(PREFIX)/share/mlh/Dictionary" "$(DESTDIR)$(PREFIX)/share/ibus/component" "$(DESTDIR)$(PREFIX)/share/doc/mlh-ibus"
+	install -d "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/mlh" "$(DESTDIR)$(PREFIX)/share/mlh/Dictionary" "$(DESTDIR)$(PREFIX)/share/ibus/component" "$(DESTDIR)$(PREFIX)/share/applications" "$(DESTDIR)$(PREFIX)/share/doc/mlh-ibus"
 	install -m 755 "$(LINUX_BIN)" "$(DESTDIR)$(PREFIX)/bin/mlh-ibus"
 	install -m 755 "$(SETTINGS_BACKEND)" "$(DESTDIR)$(PREFIX)/bin/mlh-settings-backend"
 	install -m 755 "$(SETTINGS_TUI)" "$(DESTDIR)$(PREFIX)/bin/mlh-settings-tui"
 	install -m 755 "$(SETTINGS_GUI)" "$(DESTDIR)$(PREFIX)/bin/mlh-settings-gtk"
+	install -m 644 linux/mlh-settings.desktop "$(DESTDIR)$(PREFIX)/share/applications/mlh-settings.desktop"
 	install -m 755 linux/mlh-gnome-terminal "$(DESTDIR)$(PREFIX)/bin/mlh-gnome-terminal"
 	install -m 755 "$(SWIFT_LIB)" "$(DESTDIR)$(PREFIX)/lib/mlh/libMLHBridge.so"
 	cp -Rf "$(DICTIONARY)/." "$(DESTDIR)$(PREFIX)/share/mlh/Dictionary/"

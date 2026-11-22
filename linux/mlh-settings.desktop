@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=mlh Settings
+Name[ja]=mlh 設定
+Comment=Configure the mlh input method
+Comment[ja]=mlh 入力メソッドを設定します
+Exec=mlh-settings-gtk
+Icon=preferences-system
+Terminal=false
+Categories=Settings;
+StartupNotify=true
