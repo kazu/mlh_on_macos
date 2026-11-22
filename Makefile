@@ -16,6 +16,13 @@ ICON         := $(CONTENTS)/Resources/iconTemplate.tiff
 DICTIONARY   := $(CONTENTS)/Resources/Dictionary
 LICENSES     := $(CONTENTS)/Resources/Licenses
 FRAMEWORKS   := $(CONTENTS)/Frameworks
+SETTINGS_APP := $(CONTENTS)/Resources/mlh-settings.app
+SETTINGS_CONTENTS := $(SETTINGS_APP)/Contents
+SETTINGS_EXECUTABLE := $(SETTINGS_CONTENTS)/MacOS/mlh-settings
+SETTINGS_BACKEND := $(SETTINGS_CONTENTS)/MacOS/mlh-settings-backend
+SETTINGS_TUI := $(SETTINGS_CONTENTS)/MacOS/mlh-settings-tui
+SETTINGS_PLIST := $(SETTINGS_CONTENTS)/Info.plist
+TUI_TARGET_DIR := $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),settings-tui/target)
 # The zenz model for azooKey's neural conversion (CC-BY-SA 4.0, not bundled).
 ZENZ_MODEL_URL := https://huggingface.co/Miwa-Keita/zenz-v3.1-small-gguf/resolve/main/ggml-model-Q5_K_M.gguf
 MLH_SUPPORT  := $(HOME)/Library/Application Support/mlh
@@ -47,20 +54,43 @@ INSTALLED    := $(INSTALL_DIR)/$(APP_NAME).app
 SIGN_NAME    := MLH Local Code Signing
 SIGN_IDENTITY ?= $(shell security find-certificate -c "$(SIGN_NAME)" >/dev/null 2>&1 && echo "$(SIGN_NAME)" || echo -)
 
-.PHONY: all build executable test install install-system dmg uninstall clean signing-identity zenz-model
+.PHONY: all build executable test test-gui install install-system dmg verify-bundle uninstall clean signing-identity zenz-model
 
 all: build
 
-build: executable $(PLIST) $(ICON) $(STRINGS)
+build: executable $(PLIST) $(SETTINGS_PLIST) $(ICON) $(STRINGS)
 	if [ -d "$(FRAMEWORKS)" ]; then codesign --force --sign "$(SIGN_IDENTITY)" "$(FRAMEWORKS)"/*.framework; fi
+	codesign --force --sign "$(SIGN_IDENTITY)" "$(SETTINGS_BACKEND)"
+	codesign --force --sign "$(SIGN_IDENTITY)" "$(SETTINGS_TUI)"
+	codesign --force --sign "$(SIGN_IDENTITY)" "$(SETTINGS_APP)"
 	codesign --force --sign "$(SIGN_IDENTITY)" "$(APP)"
 	@echo "built $(APP)"
 
+verify-bundle:
+	codesign --verify --deep --strict "$(APP)"
+	test -x "$(SETTINGS_EXECUTABLE)"
+	test -x "$(SETTINGS_TUI)"
+	@set -e; snapshot=$$(mktemp "$(BUILD_DIR)/.settings-snapshot.XXXXXX"); \
+		trap 'rm -f "$$snapshot"' 0; \
+		"$(SETTINGS_BACKEND)" snapshot > "$$snapshot"; \
+		test -s "$$snapshot"
+
 # SwiftPM tracks the sources itself, so this always runs it.
 executable:
-	@mkdir -p "$(dir $(EXECUTABLE))" "$(DICTIONARY)"
-	for arch in $(ARCHS); do $(SWIFT_BUILD) --arch $$arch --product $(APP_NAME) || exit 1; done
+	@mkdir -p "$(dir $(EXECUTABLE))" "$(DICTIONARY)" "$(dir $(SETTINGS_EXECUTABLE))"
+	for arch in $(ARCHS); do \
+		for product in $(APP_NAME) mlh-settings mlh-settings-backend; do \
+			$(SWIFT_BUILD) --arch $$arch --product $$product || exit 1; \
+		done; \
+	done
 	lipo -create $(foreach arch,$(ARCHS),".build/$(arch)-apple-macosx/release/$(APP_NAME)") -output "$(EXECUTABLE)"
+	lipo -create $(foreach arch,$(ARCHS),".build/$(arch)-apple-macosx/release/mlh-settings") -output "$(SETTINGS_EXECUTABLE)"
+	lipo -create $(foreach arch,$(ARCHS),".build/$(arch)-apple-macosx/release/mlh-settings-backend") -output "$(SETTINGS_BACKEND)"
+	@set --; for arch in $(ARCHS); do \
+		case $$arch in arm64) rust_arch=aarch64 ;; *) rust_arch=$$arch ;; esac; \
+		CARGO_TARGET_DIR="$(TUI_TARGET_DIR)" cargo build --release --locked --manifest-path settings-tui/Cargo.toml --target "$$rust_arch-apple-darwin" || exit 1; \
+		set -- "$$@" "$(TUI_TARGET_DIR)/$$rust_arch-apple-darwin/release/mlh-settings-tui"; \
+	done; lipo -create "$$@" -output "$(SETTINGS_TUI)"
 	rsync -a --delete "$(AZOOKEY_DICT)/" "$(DICTIONARY)/"
 	@mkdir -p "$(LICENSES)"
 	install -m 644 "$(AZOOKEY_DIR)/LICENSE" "$(LICENSES)/AzooKeyKanaKanjiConverter.txt"
@@ -82,6 +112,13 @@ $(PLIST): Resources/Info.plist
 	plutil -lint Resources/Info.plist
 	cp Resources/Info.plist "$@"
 
+$(SETTINGS_PLIST): Resources/SettingsInfo.plist $(PLIST)
+	@mkdir -p "$(dir $@)"
+	plutil -lint Resources/SettingsInfo.plist
+	cp Resources/SettingsInfo.plist "$@"
+	plutil -replace CFBundleShortVersionString -string "$$(plutil -extract CFBundleShortVersionString raw -o - '$(PLIST)')" "$@"
+	plutil -replace CFBundleVersion -string "$$(plutil -extract CFBundleVersion raw -o - '$(PLIST)')" "$@"
+
 $(ICON): scripts/make-icon.swift
 	@mkdir -p "$(dir $@)"
 	swift scripts/make-icon.swift "$@"
@@ -89,6 +126,19 @@ $(ICON): scripts/make-icon.swift
 test:
 	$(TEST_BUILD) --product mlh-tests
 	MLH_AZOOKEY_DICTIONARY=".build/test/checkouts/$(AZOOKEY_DICT_PATH)" ./$(TEST_BIN)
+
+# Requires a logged-in macOS desktop with Accessibility access for System Events.
+test-gui:
+	@mkdir -p "$(BUILD_DIR)"
+	@set -e; bin="$(CURDIR)/$(BUILD_DIR)/mlh-settings-gui-test"; server="$(CURDIR)/$(BUILD_DIR)/mlh-settings-http-test"; state="$(CURDIR)/$(BUILD_DIR)/.settings-gui-failure-state"; \
+		trap 'rm -f "$$bin" "$$server" "$$state"' 0; \
+		swiftc -D MLH_TESTING Sources/SettingsGUI/main.swift -framework AppKit -o "$$bin"; \
+		swiftc Tests/GUIFailureHarness/model_http_server.swift -o "$$server"; \
+		swift Tests/GUIFailureHarness/main.swift "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/backend.sh" "$$state"; \
+		sh Tests/GUIFailureHarness/model_download.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/model_backend.sh" "$(CURDIR)/$(BUILD_DIR)" "$$server"; \
+		sh Tests/GUIFailureHarness/model_races.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/model_backend.sh" "$(CURDIR)/$(BUILD_DIR)" "$$server" busy; \
+		sh Tests/GUIFailureHarness/model_races.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/model_backend.sh" "$(CURDIR)/$(BUILD_DIR)" "$$server" cancel; \
+		sh Tests/GUIFailureHarness/dynamic_navigation.sh "$$bin" "$(CURDIR)/Tests/GUIFailureHarness/dynamic_backend.sh" "$(CURDIR)/$(BUILD_DIR)"
 
 install: build
 	-killall $(APP_NAME) 2>/dev/null

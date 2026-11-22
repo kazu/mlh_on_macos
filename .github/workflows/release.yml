@@ -34,8 +34,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - run: sh scripts/set-version.sh "${GITHUB_REF_NAME#v}"
       - run: make dmg ARCHS="arm64 x86_64" DMG="build/mlh-$GITHUB_REF_NAME.dmg"
+      - run: make verify-bundle
       - uses: actions/download-artifact@v4
         with:
           name: deb

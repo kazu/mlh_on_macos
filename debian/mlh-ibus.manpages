@@ -1,2 +1,5 @@
 debian/mlh-ibus.1
 debian/mlh-gnome-terminal.1
+debian/mlh-settings-backend.1
+debian/mlh-settings-gtk.1
+debian/mlh-settings-tui.1

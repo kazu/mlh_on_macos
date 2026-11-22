@@ -3,6 +3,33 @@
 この文書の設定例とファイルの場所は macOS 向けです。
 Linux の設定とファイルの場所は [Linux 版の手順](../linux/README.md#設定)を参照してください。
 
+## 設定画面を開く
+
+macOS では、mlh を選択した状態で入力メニューから「mlh 設定…」を開きます。
+左側で項目を選び、値を変更したら「保存」を押してください。「リセット…」は保存時に反映されます。
+保存に失敗した場合は現在の設定を読み直し、未保存の入力は破棄されます。読み直しにも失敗した場合は画面にその旨を表示し、再読み込みが成功するまで保存と追加を無効にします。
+API キーは入力欄に表示されず、保存済みかどうかだけを示します。
+
+ターミナルからは、同じ設定を共通の TUI で編集できます。以下はユーザー用の
+`~/Library/Input Methods` にインストールした場合です。システム用の `/Library/Input Methods`
+にインストールした場合は、`app` の先頭をその場所に変えてください。
+
+Bash / zsh:
+
+```sh
+app="$HOME/Library/Input Methods/mlh.app"
+cd "$app/Contents/Resources/mlh-settings.app/Contents/MacOS"
+./mlh-settings-tui
+```
+
+Nushell:
+
+```nu
+let app = ($env.HOME | path join 'Library' 'Input Methods' 'mlh.app')
+cd ($app | path join Contents Resources mlh-settings.app Contents MacOS)
+./mlh-settings-tui
+```
+
 ## 行の書き換え（`x`）
 
 egg の `mlh-userdef-function` の代わりに、`x/` の直前の行全体（`x/` は除く）を
@@ -142,6 +169,8 @@ Zenzai は、変換する位置より前の文字列（同じ行の、すでに�
 
 Zenzai は zenz という小さな言語モデルを llama.cpp で動かします。モデル（約 72MB）は同梱していないので、
 一度ダウンロードしてください。モデルがあれば Zenzai を使い、なければ通常の azooKey で変換します。
+設定画面の「Zenzai」でモデルが見つからないときは「モデルをダウンロード…」から取得できます。
+現在設定されているパスに保存し、既存のファイルは上書きしません。取得後は mlh を再起動してください。
 次の 2 行で `~/Library/Application Support/mlh/zenz.gguf` に置きます（`curl` を使います）。
 ソースからビルドした場合は、リポジトリのルートで `make zenz-model` でも同じことができます。
 

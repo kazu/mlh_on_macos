@@ -36,6 +36,12 @@ func runOpenAIConfigTests() -> (passed: Int, failed: Int) {
     check("resolved environment effort", resolved.reasoningEffort.value == "none" && resolved.reasoningEffort.origin == .environment)
     check("resolved defaults base URL", resolved.baseURL.value == OpenAI.defaultBaseURL && resolved.baseURL.origin == .automatic)
     check("resolved config matches runtime", resolved.config.model == OpenAI.Config(defaults: defaults).applyingEnvironment(["MLH_OPENAI_MODEL": ""]).model)
+    let stored = OpenAI.Config.resolved(defaults: defaults, persisted: ["MLH_OPENAI_MODEL": "stored-from-file"])
+    check("stored model value and origin", stored.model.value == "stored-from-file" && stored.model.origin == .file)
+    let processWins = OpenAI.Config.resolved(defaults: defaults,
+                                             environment: ["MLH_OPENAI_MODEL": "from-env"],
+                                             persisted: ["MLH_OPENAI_MODEL": "stored-from-file"])
+    check("environment overrides stored model", processWins.model.value == "from-env" && processWins.model.origin == .environment)
     defaults.removePersistentDomain(forName: "mlh-tests-openai-config")
     return (passed, failed)
 }

@@ -23,9 +23,24 @@ let swift5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 // carries it in Contents/Frameworks.
 let appLinkerFlags: [String] = ["-Xlinker", "-dead_strip_dylibs"]
     + (zenzaiTraits.isEmpty ? [] : ["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+#if os(macOS)
+let settingsBackendLinkerSettings: [LinkerSetting] = [.unsafeFlags(
+    ["-Xlinker", "-dead_strip_dylibs"]
+        + (zenzaiTraits.isEmpty ? [] : ["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../../../../Frameworks"])
+)]
+#else
+let settingsBackendLinkerSettings: [LinkerSetting] = []
+#endif
 
 #if os(Linux)
 let bridgeTarget: Target = .target(name: "MLHBridge", dependencies: ["MLHCore"], path: "Sources", exclude: ["Core", "IME/CandidatePanel.swift", "IME/MLHInputController.swift", "IME/main.swift"], sources: ["LinuxBridge", "IME/TextContext.swift", "IME/ExecuteTask.swift"], swiftSettings: swift5)
+#endif
+
+var coreDependencies: [Target.Dependency] = [
+    .product(name: "KanaKanjiConverterModule", package: "AzooKeyKanaKanjiConverter"),
+]
+#if os(Linux)
+coreDependencies.append("CLinuxSecret")
 #endif
 
 let package = Package(
@@ -40,9 +55,7 @@ let package = Package(
     targets: [
         .target(
             name: "MLHCore",
-            dependencies: [
-                .product(name: "KanaKanjiConverterModule", package: "AzooKeyKanaKanjiConverter"),
-            ],
+            dependencies: coreDependencies,
             path: "Sources/Core",
             swiftSettings: swift5
         ),
@@ -59,17 +72,33 @@ let package = Package(
             ]
         ),
         .executableTarget(
+            name: "mlh-settings",
+            path: "Sources/SettingsGUI",
+            swiftSettings: swift5,
+            linkerSettings: [.linkedFramework("AppKit")]
+        ),
+        .executableTarget(
+            name: "mlh-settings-backend",
+            dependencies: ["MLHCore"],
+            path: "Sources/SettingsBackendCLI",
+            swiftSettings: swift5,
+            linkerSettings: settingsBackendLinkerSettings
+        ),
+        .executableTarget(
             name: "mlh-tests",
             dependencies: ["MLHCore"],
             path: "Tests",
+            exclude: ["GUIFailureHarness"],
             swiftSettings: swift5,
-            linkerSettings: [.unsafeFlags(["-Xlinker", "-dead_strip_dylibs"])]
+            linkerSettings: settingsBackendLinkerSettings
         ),
     ]
 )
 
 #if os(Linux)
-package.targets.removeAll { $0.name == "mlh" }
+package.targets.removeAll { $0.name == "mlh" || $0.name == "mlh-settings" }
+package.targets.append(.systemLibrary(name: "CLibSecret", pkgConfig: "libsecret-1", providers: [.apt(["libsecret-1-dev"])]))
+package.targets.append(.target(name: "CLinuxSecret", dependencies: ["CLibSecret"], path: "Sources/CLinuxSecret"))
 package.targets.append(bridgeTarget)
 package.products.append(.library(name: "MLHBridge", type: .dynamic, targets: ["MLHBridge"]))
 #endif

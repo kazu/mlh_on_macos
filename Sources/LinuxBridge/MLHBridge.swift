@@ -232,7 +232,9 @@ public func mlhResultPart(_ result: UnsafeMutableRawPointer, _ suffix: Bool) -> 
 @_cdecl("mlh_conversion_new")
 public func mlhConversionNew(_ source: UnsafePointer<CChar>, _ dictionary: UnsafePointer<CChar>) -> UnsafeMutableRawPointer {
     let transliterator: Transliterator
-    if ProcessInfo.processInfo.environment["MLH_TRANSLITERATOR"] == "google" {
+    let setting = LinuxSettings.resolve("MLH_TRANSLITERATOR")
+    if KanjiBackend.resolve(configuredName: setting.value,
+                            origin: setting.origin).value == .google {
         transliterator = GoogleTransliterator()
     } else {
         transliterator = AzooKeyTransliterator(dictionaryURL: URL(fileURLWithPath: String(cString: dictionary)))
@@ -316,4 +318,11 @@ public func mlhConversionStep(_ conversion: UnsafeMutableRawPointer, _ action: I
 @_cdecl("mlh_string_free")
 public func mlhStringFree(_ text: UnsafeMutablePointer<CChar>) {
     free(text)
+}
+
+/// Returns a malloc-owned UTF-8 value; Rust releases it with mlh_string_free.
+@_cdecl("mlh_setting_copy")
+public func mlhSettingCopy(_ key: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>? {
+    guard let value = LinuxSettings.resolve(String(cString: key)).value else { return nil }
+    return value.withCString { strdup($0) }
 }

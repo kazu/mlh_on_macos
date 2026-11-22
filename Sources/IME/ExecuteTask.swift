@@ -32,8 +32,9 @@ enum Execute {
 
     static var backend: Backend? {
         #if os(Linux)
-        let name = ProcessInfo.processInfo.environment["MLH_EXEC_BACKEND"]
-        let origin: ResolvedSetting<Backend?>.Origin = .environment
+        let selection = LinuxSettings.resolve("MLH_EXEC_BACKEND")
+        let name = selection.value
+        let origin: ResolvedSetting<Backend?>.Origin = selection.origin
         #else
         let name = UserDefaults.standard.string(forKey: "ExecuteBackend")
         let origin: ResolvedSetting<Backend?>.Origin = .userDefaults
@@ -49,7 +50,7 @@ enum Execute {
         #if os(Linux)
         let env = ProcessInfo.processInfo.environment
         let base = env["XDG_CONFIG_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config").path
-        return ExecuteFile.load(from: URL(fileURLWithPath: env["MLH_EXEC_CONFIG"] ?? "\(base)/mlh/execute.json"))
+        return ExecuteFile.load(from: URL(fileURLWithPath: LinuxSettings.resolve("MLH_EXEC_CONFIG", environment: env).value ?? "\(base)/mlh/execute.json"))
         #else
         return ExecuteFile.load()
         #endif
@@ -75,7 +76,8 @@ enum Execute {
         }
         #if os(Linux)
         let env = ProcessInfo.processInfo.environment
-        let defaults = OpenAI.Config.resolved(environment: env).config
+        let defaults = OpenAI.Config.resolved(environment: env,
+                                              persisted: (try? LinuxSettings.load(environment: env)) ?? [:]).config
         return OpenAITask(source: source, config: s.apply(to: defaults))
         #else
         return OpenAITask(source: source, config: s.apply(to: OpenAI.Config()))
@@ -133,7 +135,7 @@ final class CommandTask: ExecuteTaskBase, ExecuteTask {
         #if os(Linux)
         let env = ProcessInfo.processInfo.environment
         let base = env["XDG_CONFIG_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config").path
-        return URL(fileURLWithPath: env["MLH_EXEC_COMMAND"] ?? "\(base)/mlh/execute")
+        return URL(fileURLWithPath: LinuxSettings.resolve("MLH_EXEC_COMMAND", environment: env).value ?? "\(base)/mlh/execute")
         #else
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/mlh/execute")

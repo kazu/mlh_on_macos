@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "sections": [
+    {"id": "openai", "label": "OpenAI"},
+    {"id": "execute", "label": "実行"}
+  ],
+  "fields": [
+    {"id": "openai.model", "section": "openai", "label": "モデル", "kind": "text", "value": "partially saved", "origin": "file", "options": [], "editable": true, "description": "", "has_value": true},
+    {"id": "execute.entry.g.2.model", "section": "execute", "label": "番号 2 モデル", "kind": "text", "value": "partial entry", "origin": "file", "options": [], "editable": true, "description": "", "has_value": true}
+  ],
+  "actions": [
+    {"id": "execute.entry.add", "section": "execute", "label": "番号別またはアプリ別の設定を追加", "inputs": [{"id": "key", "label": "番号", "kind": "text"}]}
+  ]
+}

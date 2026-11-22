@@ -1,0 +1,17 @@
+.TH MLH-SETTINGS-BACKEND 1 "November 2026" "mlh" "User Commands"
+.SH NAME
+mlh-settings-backend \- read and update mlh settings as JSON
+.SH SYNOPSIS
+.B mlh-settings-backend
+.RB { snapshot | apply }
+.SH DESCRIPTION
+.B snapshot
+prints a JSON document containing sections, fields, and actions.
+Secret values are never included in the output.
+.B apply
+reads a schema version 1 JSON request from standard input, applies its
+changes and actions, and prints the updated snapshot.
+The graphical and terminal settings interfaces use this command.
+.SH SEE ALSO
+.BR mlh-settings-gtk (1),
+.BR mlh-settings-tui (1)

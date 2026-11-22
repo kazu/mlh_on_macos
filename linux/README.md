@@ -26,10 +26,14 @@ GNOME Terminal では `mlh-gnome-terminal` を実行すると、既存のター�
 
 ## 設定
 
+専用ウィンドウは `mlh-settings-gtk`、端末画面は `mlh-settings-tui` で開けます。どちらも同じ設定を編集します。CLI から JSON を扱う場合は `mlh-settings-backend snapshot` と `mlh-settings-backend apply` を使います。
+
+画面で保存した一般設定は `~/.config/mlh/settings.json` に入ります。`XDG_CONFIG_HOME` を指定した場合はその下の `mlh/settings.json` です。従来の環境変数が設定されている項目は環境変数が優先され、画面では読み取り専用になります。API キーは対応する Secret Service があれば画面から保存できます。対応サービスがない場合は API キー欄を編集できません。保存した値は設定ファイルや画面に表示されません。`OPENAI_API_KEY` があれば保存済みの値より優先します。
+
 ユーザー辞書は `~/.config/mlh/userdict.txt`、`x/` の番号別設定は `~/.config/mlh/execute.json` です。`XDG_CONFIG_HOME` が指定されている場合は、その下の `mlh` ディレクトリを使います。ファイル形式は[設定](../docs/settings.md)、入力操作は[入力と変換](../docs/usage.md)を参照してください。`apps` のキーには、IBus が渡すアプリのプログラム名を指定します。アプリ名が渡されない入力経路では共通設定を使います。
 
 漢字変換は azooKey がデフォルトです。`MLH_TRANSLITERATOR=google` をエンジンの環境に設定すると Google の変換 API を使えます。`x/` の番号なしの実行方式は `MLH_EXEC_BACKEND` に `command` または `openai` を指定します。外部コマンドのデフォルトの場所は `~/.config/mlh/execute` です。
 
-OpenAI 互換サーバーのデフォルト設定は `MLH_OPENAI_BASE_URL`、`MLH_OPENAI_MODEL`、`MLH_OPENAI_INSTRUCTIONS`、`MLH_OPENAI_REASONING_EFFORT` で指定できます。API キーが必要な場合は `OPENAI_API_KEY` を使います。これらは IBus がエンジンを起動するときの環境に設定してください。
+OpenAI 互換サーバーのデフォルト設定は `MLH_OPENAI_BASE_URL`、`MLH_OPENAI_MODEL`、`MLH_OPENAI_INSTRUCTIONS`、`MLH_OPENAI_REASONING_EFFORT` で指定できます。これらを環境変数で指定する場合は、IBus がエンジンを起動するときの環境に設定してください。API キーは Secret Service または `OPENAI_API_KEY` から取得します。キーを設定しなければ認証ヘッダを付けずに接続します。
 
 `x/` の実行中は元の文章を残し、応答をその後ろに未確定文字として表示します。完了すると応答に置き換わります。キャンセルやフォーカス移動時には元の文章が残ります。

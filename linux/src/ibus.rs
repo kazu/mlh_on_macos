@@ -370,10 +370,16 @@ struct Selection {
 }
 
 fn dictionary_path() -> Option<String> {
-    if std::env::var("MLH_TRANSLITERATOR").as_deref() == Ok("google") {
+    let transliterator = if std::env::var_os("MLH_TRANSLITERATOR").is_some() {
+        std::env::var("MLH_TRANSLITERATOR").ok()
+    } else {
+        crate::core::setting_value("MLH_TRANSLITERATOR")
+    };
+    if transliterator.as_deref() == Some("google") {
         return Some(String::new());
     }
-    if let Some(path) = std::env::var_os("MLH_DICTIONARY") {
+    if let Some(path) = std::env::var_os("MLH_DICTIONARY")
+        .or_else(|| crate::core::setting_value("MLH_DICTIONARY").map(Into::into)) {
         let path = std::path::PathBuf::from(path);
         return path
             .is_dir()

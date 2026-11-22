@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "sections": [
+    {"id": "openai", "label": "OpenAI"},
+    {"id": "execute", "label": "実行"}
+  ],
+  "fields": [
+    {"id": "openai.model", "section": "openai", "label": "モデル", "kind": "text", "value": "before", "origin": "file", "options": [], "editable": true, "description": "", "has_value": true}
+  ],
+  "actions": [
+    {"id": "execute.entry.add", "section": "execute", "label": "番号別またはアプリ別の設定を追加", "inputs": [{"id": "key", "label": "番号", "kind": "text"}]}
+  ]
+}

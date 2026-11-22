@@ -2,7 +2,7 @@ import Foundation
 
 /// A value and the source that supplied it to the running input method.
 public enum SettingsOrigin: String {
-    case environment, userDefaults, file, keychain, automatic
+    case environment, userDefaults, file, keychain, secretService, automatic
 }
 
 public struct ResolvedSetting<Value> {

@@ -51,6 +51,7 @@ macOS 13.3 以降で、Apple Silicon と Intel の両方で動きます。
    「アクセシビリティ」の「+」で、`/Library/Input Methods/mlh.app` を追加してください。
 
 mlh は常に ASCII がそのまま入る入力メソッドなので、普段から mlh を選んだままで使えます。
+設定画面は、mlh を選択した状態で入力メニューの「mlh 設定…」から開けます。端末画面も同梱されています。起動方法と各項目は[設定](docs/settings.md)を参照してください。
 文脈を使った変換（Zenzai）のモデルは dmg に入っていません。使う場合は[設定](docs/settings.md#文脈を使った変換zenzai)を参照してください。
 
 ### Linux
@@ -63,6 +64,7 @@ sudo apt install ./mlh-ibus_0.1.3_amd64.deb
 
 入れたあと、入力中の文章を確定してから `ibus restart` を実行するか、ログインし直します。
 その後、デスクトップの入力ソースに `mlh` を追加します。既に動いているアプリでは、新しく開いたウィンドウでまず試してください。
+設定画面は `mlh-settings-gtk`、端末では `mlh-settings-tui` で開けます。設定の保存先と環境変数の優先順位は [Linux 版の設定](linux/README.md#設定)を参照してください。
 
 ## 使い方
 

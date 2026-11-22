@@ -8,7 +8,10 @@ JOBS ?= 2
 AZOOKEY_DIR := $(SWIFT_BUILD_DIR)/checkouts/AzooKeyKanaKanjiConverter
 DICTIONARY := $(AZOOKEY_DIR)/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary
 SWIFT_LIB := $(SWIFT_BUILD_DIR)/release/libMLHBridge.so
+SETTINGS_BACKEND := $(SWIFT_BUILD_DIR)/release/mlh-settings-backend
 LINUX_BIN := $(CARGO_TARGET_DIR)/release/mlh-ibus
+SETTINGS_TUI := $(CARGO_TARGET_DIR)/release/mlh-settings-tui
+SETTINGS_GUI := $(CARGO_TARGET_DIR)/release/mlh-settings-gtk
 OBJC_LIB_DIR := $(dir $(shell gcc -print-file-name=libobjc.so))
 
 .PHONY: all build install test deb
@@ -16,11 +19,17 @@ all: build
 
 build:
 	LIBRARY_PATH="$(OBJC_LIB_DIR):$(LIBRARY_PATH)" swift build --scratch-path "$(SWIFT_BUILD_DIR)" --product MLHBridge -c release -j $(JOBS)
+	LIBRARY_PATH="$(OBJC_LIB_DIR):$(LIBRARY_PATH)" swift build --scratch-path "$(SWIFT_BUILD_DIR)" --product mlh-settings-backend -c release -j $(JOBS)
 	MLH_BRIDGE_DIR="$(SWIFT_BUILD_DIR)/release" CARGO_TARGET_DIR="$(CARGO_TARGET_DIR)" cargo build --locked --manifest-path linux/Cargo.toml --release -j $(JOBS)
+	CARGO_TARGET_DIR="$(CARGO_TARGET_DIR)" cargo build --locked --manifest-path settings-tui/Cargo.toml --release -j $(JOBS)
+	CARGO_TARGET_DIR="$(CARGO_TARGET_DIR)" cargo build --locked --manifest-path settings-gui/Cargo.toml --release -j $(JOBS)
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/lib/mlh" "$(DESTDIR)$(PREFIX)/share/mlh/Dictionary" "$(DESTDIR)$(PREFIX)/share/ibus/component" "$(DESTDIR)$(PREFIX)/share/doc/mlh-ibus"
 	install -m 755 "$(LINUX_BIN)" "$(DESTDIR)$(PREFIX)/bin/mlh-ibus"
+	install -m 755 "$(SETTINGS_BACKEND)" "$(DESTDIR)$(PREFIX)/bin/mlh-settings-backend"
+	install -m 755 "$(SETTINGS_TUI)" "$(DESTDIR)$(PREFIX)/bin/mlh-settings-tui"
+	install -m 755 "$(SETTINGS_GUI)" "$(DESTDIR)$(PREFIX)/bin/mlh-settings-gtk"
 	install -m 755 linux/mlh-gnome-terminal "$(DESTDIR)$(PREFIX)/bin/mlh-gnome-terminal"
 	install -m 755 "$(SWIFT_LIB)" "$(DESTDIR)$(PREFIX)/lib/mlh/libMLHBridge.so"
 	cp -Rf "$(DICTIONARY)/." "$(DESTDIR)$(PREFIX)/share/mlh/Dictionary/"

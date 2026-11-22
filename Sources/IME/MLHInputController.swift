@@ -238,6 +238,19 @@ final class MLHInputController: IMKInputController {
 
     // MARK: - IMKStateSetting
 
+    override func menu() -> NSMenu! {
+        let menu = NSMenu()
+        let settings = NSMenuItem(title: "mlh 設定…", action: #selector(openSettings(_:)), keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
+        return menu
+    }
+
+    @objc private func openSettings(_ sender: Any?) {
+        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/mlh-settings.app")
+        NSWorkspace.shared.open(url)
+    }
+
     override func recognizedEvents(_ sender: Any!) -> Int {
         Int(NSEvent.EventTypeMask.keyDown.rawValue | NSEvent.EventTypeMask.leftMouseDown.rawValue)
     }

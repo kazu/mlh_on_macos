@@ -20,7 +20,13 @@ private final class OpenAIDelegate: NSObject, URLSessionDataDelegate, @unchecked
 }
 
 final class OpenAITask: ExecuteTaskBase, ExecuteTask, @unchecked Sendable {
-    static var hasAPIKey: Bool { ProcessInfo.processInfo.environment["OPENAI_API_KEY"] != nil }
+    static var hasAPIKey: Bool {
+        do { return try LinuxSecretStore.apiKey() != nil }
+        catch {
+            FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+            return false
+        }
+    }
 
     private var session: URLSession?
     private var task: URLSessionDataTask?
@@ -30,7 +36,13 @@ final class OpenAITask: ExecuteTaskBase, ExecuteTask, @unchecked Sendable {
 
     init(source: String, config: OpenAI.Config) {
         super.init(source: source)
-        let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
+        let key: String?
+        do { key = try LinuxSecretStore.apiKey() }
+        catch {
+            FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+            DispatchQueue.main.async { self.finish(nil) }
+            return
+        }
         guard var request = OpenAI.request(source, config: config, apiKey: key) else {
             DispatchQueue.main.async { self.finish(nil) }
             return

@@ -32,6 +32,7 @@ unsafe extern "C" {
     fn mlh_result_execute_part(result: *mut c_void, part: i32) -> *mut c_char;
     fn mlh_result_part(result: *mut c_void, suffix: bool) -> *mut c_char;
     fn mlh_string_free(text: *mut c_char);
+    fn mlh_setting_copy(key: *const c_char) -> *mut c_char;
     fn mlh_typed_new() -> *mut c_void;
     fn mlh_typed_free(typed: *mut c_void);
     fn mlh_typed_append(typed: *mut c_void, text: *const c_char);
@@ -186,13 +187,20 @@ unsafe fn take_string(value: *mut c_char) -> Option<String> {
     Some(text)
 }
 
+pub fn setting_value(key: &str) -> Option<String> {
+    let key = CString::new(key).ok()?;
+    unsafe { take_string(mlh_setting_copy(key.as_ptr())) }
+}
+
 impl Engine {
     pub fn new() -> Self {
         Self::for_app(None)
     }
 
     pub fn for_app(app: Option<&str>) -> Self {
-        let path = std::env::var_os("MLH_USER_DICTIONARY").or_else(|| {
+        let path = std::env::var_os("MLH_USER_DICTIONARY")
+            .or_else(|| setting_value("MLH_USER_DICTIONARY").map(Into::into))
+            .or_else(|| {
             let base = std::env::var_os("XDG_CONFIG_HOME")
                 .map(std::path::PathBuf::from)
                 .or_else(|| {
@@ -200,7 +208,7 @@ impl Engine {
                         .map(|home| std::path::PathBuf::from(home).join(".config"))
                 })?;
             Some(base.join("mlh/userdict.txt").into_os_string())
-        });
+            });
         let path = path.and_then(|p| CString::new(p.as_encoded_bytes()).ok());
         let app = app.and_then(|app| CString::new(app).ok());
         Self(unsafe {
